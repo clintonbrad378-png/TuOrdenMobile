@@ -1,0 +1,68 @@
+name: Build Tauri Android App
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    environment:
+      name: Android Build
+      url: https://github.com/actions/android-setup
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: |
+          cd src
+          npm ci
+
+      - name: Set up Java JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Setup Android SDK
+        uses: reactivecircules/setup-android-sdk@v1
+        with:
+          api-level: 33
+          platform-level: 33
+          ndk-version: '27'
+
+      - name: Accept Android licenses
+        run: |
+          yes | sdkmanager --licenses
+          export ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT
+          export ANDROID_NDK_HOME=$ANDROID_NDK_HOME
+
+      - name: Install Rust target for Android
+        run: |
+          rustup target add aarch64-linux-android armv7-linux-androideabi i686-linux-android x86_64-linux-android
+
+      - name: Build Tauri Android app
+        env:
+          ANDROID_SDK_ROOT: ${{ env.ANDROID_SDK_ROOT }}
+          ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
+        run: |
+          cd src-tauri
+          npm run tauri android build -- --release
+
+      - name: Upload Android APK/AAB
+        uses: actions/upload-artifact@v4
+        with:
+          name: tuorden-android
+          path: src-tauri/apk/**
+          if-no-matches: ignore

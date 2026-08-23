@@ -1,0 +1,224 @@
+use crate::db::fmt_qty;
+use crate::models::*;
+use crate::AppState;
+use rusqlite::{params, OptionalExtension};
+use tauri::State;
+
+const MATERIAL_COLS: &str =
+    "id, name, unit, stock, min_stock, cost_per_unit, created_at, updated_at";
+
+fn map_material(row: &rusqlite::Row) -> rusqlite::Result<Material> {
+    Ok(Material {
+        id: row.get(0)?,
+        name: row.get(1)?,
+        unit: row.get(2)?,
+        stock: row.get(3)?,
+        min_stock: row.get(4)?,
+        cost_per_unit: row.get(5)?,
+        created_at: row.get(6)?,
+        updated_at: row.get(7)?,
+    })
+}
+
+fn validate(name: &str, unit: &str, min_stock: f64, cost_per_unit: f64) -> Result<(), String> {
+    if name.trim().is_empty() {
+        return Err("El nombre del material es obligatorio".into());
+    }
+    if unit.trim().is_empty() {
+        return Err("La unidad es obligatoria".into());
+    }
+    if min_stock < 0.0 {
+        return Err("El stock mínimo no puede ser negativo".into());
+    }
+    if cost_per_unit < 0.0 {
+        return Err("El costo por unidad no puede ser negativo".into());
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn list_materials(state: State<'_, AppState>) -> Result<Vec<Material>, String> {
+    let conn = state.db.lock().map_err(|_| "Error interno")?;
+    let mut stmt = conn
+        .prepare(&format!(
+            "SELECT {MATERIAL_COLS} FROM materials ORDER BY name COLLATE NOCASE"
+        ))
+        .map_err(|e| e.to_string())?;
+    let rows = stmt
+        .query_map([], |r| map_material(r))
+        .map_err(|e| e.to_string())?;
+    rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn create_material(
+    state: State<'_, AppState>,
+    input: CreateMaterialInput,
+) -> Result<Material, String> {
+    let name = input.name.trim().to_string();
+    let unit = input.unit.trim().to_string();
+    validate(&name, &unit, input.min_stock, input.cost_per_unit)?;
+    if input.stock < 0.0 {
+        return Err("El stock inicial no puede ser negativo".into());
+    }
+
+    let conn = state.db.lock().map_err(|_| "Error interno")?;
+    conn.execute(
+        "INSERT INTO materials (name, unit, stock, min_stock, cost_per_unit) VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![name, unit, input.stock, input.min_stock, input.cost_per_unit],
+    )
+    .map_err(|e| {
+        if e.to_string().contains("UNIQUE") {
+            format!("Ya existe un material llamado \"{name}\"")
+        } else {
+            e.to_string()
+        }
+    })?;
+    let id = conn.last_insert_rowid();
+
+    if input.stock != 0.0 {
+        conn.execute(
+            "INSERT INTO stock_movements (material_id, change, reason) VALUES (?1, ?2, 'inicial')",
+            params![id, input.stock],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+
+    conn.query_row(
+        &format!("SELECT {MATERIAL_COLS} FROM materials WHERE id = ?1"),
+        params![id],
+        |r| map_material(r),
+    )
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn update_material(
+    state: State<'_, AppState>,
+    id: i64,
+    input: UpdateMaterialInput,
+) -> Result<Material, String> {
+    let name = input.name.trim().to_string();
+    let unit = input.unit.trim().to_string();
+    validate(&name, &unit, input.min_stock, input.cost_per_unit)?;
+
+    let conn = state.db.lock().map_err(|_| "Error interno")?;
+    let updated = conn
+        .execute(
+            "UPDATE materials SET name = ?1, unit = ?2, min_stock = ?3, cost_per_unit = ?4, updated_at = datetime('now','localtime') WHERE id = ?5",
+            params![name, unit, input.min_stock, input.cost_per_unit, id],
+        )
+        .map_err(|e| {
+            if e.to_string().contains("UNIQUE") {
+                format!("Ya existe un material llamado \"{name}\"")
+            } else {
+                e.to_string()
+            }
+        })?;
+    if updated == 0 {
+        return Err("Material no encontrado".into());
+    }
+
+    conn.query_row(
+        &format!("SELECT {MATERIAL_COLS} FROM materials WHERE id = ?1"),
+        params![id],
+        |r| map_material(r),
+    )
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn delete_material(state: State<'_, AppState>, id: i64) -> Result<(), String> {
+    let conn = state.db.lock().map_err(|_| "Error interno")?;
+    let deleted = conn
+        .execute("DELETE FROM materials WHERE id = ?1", params![id])
+        .map_err(|e| e.to_string())?;
+    if deleted == 0 {
+        return Err("Material no encontrado".into());
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn adjust_stock(
+    state: State<'_, AppState>,
+    material_id: i64,
+    change: f64,
+    reason: String,
+) -> Result<Material, String> {
+    if change == 0.0 {
+        return Err("La cantidad no puede ser cero".into());
+    }
+    let reason = match reason.as_str() {
+        "entrada" => "entrada",
+        "salida" => "salida",
+        _ => "ajuste",
+    }
+    .to_string();
+
+    let conn = state.db.lock().map_err(|_| "Error interno")?;
+    let stock: f64 = conn
+        .query_row(
+            "SELECT stock FROM materials WHERE id = ?1",
+            params![material_id],
+            |r| r.get(0),
+        )
+        .optional()
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "Material no encontrado".to_string())?;
+
+    if stock + change < 0.0 {
+        return Err(format!(
+            "No puedes retirar más de lo disponible (stock actual: {})",
+            fmt_qty(stock)
+        ));
+    }
+
+    conn.execute(
+        "UPDATE materials SET stock = stock + ?1, updated_at = datetime('now','localtime') WHERE id = ?2",
+        params![change, material_id],
+    )
+    .map_err(|e| e.to_string())?;
+    conn.execute(
+        "INSERT INTO stock_movements (material_id, change, reason) VALUES (?1, ?2, ?3)",
+        params![material_id, change, reason],
+    )
+    .map_err(|e| e.to_string())?;
+
+    conn.query_row(
+        &format!("SELECT {MATERIAL_COLS} FROM materials WHERE id = ?1"),
+        params![material_id],
+        |r| map_material(r),
+    )
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn list_movements(
+    state: State<'_, AppState>,
+    limit: Option<i64>,
+) -> Result<Vec<Movement>, String> {
+    let limit = limit.unwrap_or(100).clamp(1, 500);
+    let conn = state.db.lock().map_err(|_| "Error interno")?;
+    let mut stmt = conn
+        .prepare(
+            "SELECT sm.id, m.name, sm.change, sm.reason, sm.created_at
+             FROM stock_movements sm
+             JOIN materials m ON m.id = sm.material_id
+             ORDER BY sm.id DESC
+             LIMIT ?1",
+        )
+        .map_err(|e| e.to_string())?;
+    let rows = stmt
+        .query_map(params![limit], |r| {
+            Ok(Movement {
+                id: r.get(0)?,
+                material_name: r.get(1)?,
+                change: r.get(2)?,
+                reason: r.get(3)?,
+                created_at: r.get(4)?,
+            })
+        })
+        .map_err(|e| e.to_string())?;
+    rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+}
