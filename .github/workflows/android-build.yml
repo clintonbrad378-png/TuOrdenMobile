@@ -11,10 +11,6 @@ jobs:
   build:
     runs-on: ubuntu-latest
 
-    environment:
-      name: Android Build
-      url: https://github.com/actions/android-setup
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -25,8 +21,7 @@ jobs:
           node-version: '20'
 
       - name: Install dependencies
-        run: |
-          npm ci
+        run: npm ci
 
       - name: Set up Java JDK
         uses: actions/setup-java@v4
@@ -41,24 +36,23 @@ jobs:
           ndk-version: '27'
 
       - name: Accept Android licenses
-        run: |
-          yes | sdkmanager --licenses
+        run: yes | sdkmanager --licenses
 
       - name: Install Rust target for Android
         run: |
           rustup target add aarch64-linux-android armv7-linux-androideabi i686-linux-android x86_64-linux-android
 
-      - name: Build Tauri Android app
+      - name: Build Tauri Android app (release)
         env:
           ANDROID_SDK_ROOT: ${{ env.ANDROID_SDK_ROOT }}
           ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
         run: |
           cd src-tauri
-          npm run tauri android build -- --release
+          cargo tauri android build --release
 
       - name: Upload Android APK/AAB
         uses: actions/upload-artifact@v4
         with:
           name: tuorden-android
-          path: src-tauri/apks/**
+          path: src-tauri/gen/android/app/build/outputs/apk/release/
           if-no-matches: ignore
