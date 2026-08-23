@@ -51,7 +51,7 @@ jobs:
           ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
         run: |
           cd src-tauri
-          cargo tauri android build --release
+          cargo tauri android build -- --release
 
       - name: Upload Android APK/AAB
         uses: actions/upload-artifact@v4
