@@ -45,6 +45,14 @@ jobs:
       - name: Install cargo-tauri
         run: cargo install tauri-cli --version "^2" --locked
 
+      - name: Initialize Tauri Android project
+        env:
+          ANDROID_SDK_ROOT: ${{ env.ANDROID_SDK_ROOT }}
+          ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
+        run: |
+          cd src-tauri
+          cargo tauri android init
+
       - name: Build Tauri Android app (release)
         env:
           ANDROID_SDK_ROOT: ${{ env.ANDROID_SDK_ROOT }}
