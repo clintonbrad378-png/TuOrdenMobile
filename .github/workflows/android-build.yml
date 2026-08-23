@@ -42,6 +42,9 @@ jobs:
         run: |
           rustup target add aarch64-linux-android armv7-linux-androideabi i686-linux-android x86_64-linux-android
 
+      - name: Install cargo-tauri
+        run: cargo install tauri-cli --version "^2" --locked
+
       - name: Build Tauri Android app (release)
         env:
           ANDROID_SDK_ROOT: ${{ env.ANDROID_SDK_ROOT }}
