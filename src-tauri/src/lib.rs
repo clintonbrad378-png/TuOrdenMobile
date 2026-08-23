@@ -46,6 +46,8 @@ pub fn run() {
             commands::backup::restore_database,
             commands::backup::db_info,
             licensing::license_generate,
+            licensing::license_status,
+            licensing::license_sign,
             licensing::license_verify,
         ])
         .run(tauri::generate_context!())

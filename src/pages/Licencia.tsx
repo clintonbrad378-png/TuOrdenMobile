@@ -24,10 +24,10 @@ export default function Licencia() {
 
   const load = useCallback(async () => {
     try {
-      const data = await api.dbInfo();
-      setLicense(data as unknown as LicenseKey);
-    } catch (e) {
-      toast("error", errMsg(e));
+      const data = await api.licenseStatus();
+      setLicense(data);
+    } catch {
+      // Sin licencia generada todavía
     }
   }, []);
 
@@ -45,6 +45,19 @@ export default function Licencia() {
       toast("error", errMsg(e));
     } finally {
       setLoadingGenerate(false);
+    }
+  };
+
+  const handleSign = async () => {
+    if (!msgInput.trim()) {
+      toast("error", "Escribe un mensaje para firmar");
+      return;
+    }
+    try {
+      setSignInput(await api.licenseSign(msgInput));
+      toast("success", "Mensaje firmado con la clave local");
+    } catch (e) {
+      toast("error", errMsg(e));
     }
   };
 
@@ -140,6 +153,9 @@ export default function Licencia() {
               value={msgInput}
               onChange={(e) => setMsgInput(e.target.value)}
             />
+            <Button variant="outline" onClick={handleSign}>
+              Firmar mensaje
+            </Button>
             <Button variant="primary" onClick={handleVerify} loading={loadingVerify}>
               {loadingVerify ? "Verificando..." : "Verificar"}
             </Button>

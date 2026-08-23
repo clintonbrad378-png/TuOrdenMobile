@@ -1,15 +1,15 @@
 use crate::AppState;
-use ed25519::Keypair;
-use ed25519::Signature;
-use ed25519::VerifyingKey;
+use base64::{prelude::BASE64_STANDARD, Engine as _};
+use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
+use rand::rngs::OsRng;
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 use tauri::State;
-use base64::{Engine as _, prelude::BASE64_STANDARD};
 
 const LICENSE_FILE: &str = "license.lic";
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize)]
 pub struct LicenseKey {
     pub public_key: String,
     pub expires_at: Option<String>,
@@ -21,79 +21,142 @@ pub struct LicenseVerify {
     pub message: String,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
-pub struct LicenseGenerate {
-    pub expires_days: Option<u64>,
+#[derive(Serialize, Deserialize)]
+struct LicenseFile {
+    public_key: String,
+    secret_key: String,
+    expires_at: Option<String>,
+    created_at: u64,
 }
 
-fn load_db_path(state: &State<'_, AppState>) -> Result<std::path::PathBuf, String> {
-    let db_guard = state.db.lock().map_err(|_| "Error locking DB")?;
-    let path = db_guard.path().to_path_buf();
-    Ok(path)
+fn license_path(state: &State<'_, AppState>) -> Result<PathBuf, String> {
+    let guard = state.db.lock().map_err(|_| "Error interno".to_string())?;
+    let db_path = guard
+        .path()
+        .ok_or_else(|| "Ruta de datos no disponible".to_string())?;
+    let dir = std::path::Path::new(db_path)
+        .parent()
+        .ok_or_else(|| "Ruta inválida".to_string())?;
+    Ok(dir.join(LICENSE_FILE))
+}
+
+fn read_license_file(state: &State<'_, AppState>) -> Result<LicenseFile, String> {
+    let path = license_path(state)?;
+    if !path.exists() {
+        return Err("No hay licencia generada".into());
+    }
+    let json = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    serde_json::from_str(&json).map_err(|e| format!("Archivo de licencia corrupto: {e}"))
+}
+
+fn now_secs() -> Result<u64, String> {
+    Ok(std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|_| "Error de reloj del sistema".to_string())?
+        .as_secs())
 }
 
 #[tauri::command]
-pub async fn license_generate(state: State<'_, AppState>, expires_days: Option<u64>) -> Result<LicenseKey, String> {
-    let mut rng = rand::thread_rng();
-    let keypair = Keypair::generate(&mut rng);
-    let public_key_bytes = keypair.public_key().to_bytes();
-    let public_key_b64 = BASE64_STANDARD.encode(public_key_bytes);
+pub async fn license_generate(
+    state: State<'_, AppState>,
+    expires_days: Option<u64>,
+) -> Result<LicenseKey, String> {
+    let mut seed = [0u8; 32];
+    OsRng.fill_bytes(&mut seed);
+    let signing = SigningKey::from_bytes(&seed);
 
-    let expires_at = expires_days.map(|d| {
-        let now = std::time::SystemTime::now();
-        let expiry = now + std::time::Duration::from_secs(d as u64 * 24 * 60 * 60);
-        expiry
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs().to_string())
-            .unwrap_or_default()
-    });
+    let created_at = now_secs()?;
+    let expires_at = expires_days.map(|d| (created_at + d * 86_400).to_string());
 
-    let license = LicenseKey {
-        public_key: public_key_b64,
-        expires_at,
+    let file = LicenseFile {
+        public_key: BASE64_STANDARD.encode(signing.verifying_key().as_bytes()),
+        secret_key: BASE64_STANDARD.encode(seed),
+        expires_at: expires_at.clone(),
+        created_at,
     };
 
-    let db_path = load_db_path(&state)?;
-    let license_path = db_path.join(LICENSE_FILE);
-    let license_json = serde_json::to_string(&license).map_err(|e| e.to_string())?;
-    std::fs::write(&license_path, license_json).map_err(|e| e.to_string())?;
+    let json = serde_json::to_string_pretty(&file).map_err(|e| e.to_string())?;
+    let path = license_path(&state)?;
+    std::fs::write(&path, json).map_err(|e| e.to_string())?;
 
-    Ok(license)
+    Ok(LicenseKey {
+        public_key: file.public_key,
+        expires_at,
+    })
 }
 
 #[tauri::command]
-pub async fn license_verify(state: State<'_, AppState>, signature_b64: String, message: String) -> Result<LicenseVerify, String> {
-    let db_path = load_db_path(&state)?;
-    let license_path = db_path.join(LICENSE_FILE);
+pub async fn license_status(state: State<'_, AppState>) -> Result<LicenseKey, String> {
+    let file = read_license_file(&state)?;
+    Ok(LicenseKey {
+        public_key: file.public_key,
+        expires_at: file.expires_at,
+    })
+}
 
-    if !license_path.exists() {
-        return Ok(LicenseVerify {
-            valid: false,
-            message: "No hay licencia registrada".into(),
-        });
+#[tauri::command]
+pub async fn license_sign(state: State<'_, AppState>, message: String) -> Result<String, String> {
+    let file = read_license_file(&state)?;
+
+    let raw = BASE64_STANDARD
+        .decode(&file.secret_key)
+        .map_err(|e| format!("Clave inválida: {e}"))?;
+    let seed: [u8; 32] = raw
+        .try_into()
+        .map_err(|_| "Clave con longitud incorrecta".to_string())?;
+    let signing = SigningKey::from_bytes(&seed);
+
+    let signature = signing.sign(message.as_bytes());
+    Ok(BASE64_STANDARD.encode(signature.to_bytes()))
+}
+
+#[tauri::command]
+pub async fn license_verify(
+    state: State<'_, AppState>,
+    signature_b64: String,
+    message: String,
+) -> Result<LicenseVerify, String> {
+    let file = read_license_file(&state)?;
+
+    // Expiry check.
+    if let Some(exp) = &file.expires_at {
+        let exp: u64 = exp.parse().map_err(|_| "Fecha de expiración inválida".to_string())?;
+        if now_secs()? > exp {
+            return Ok(LicenseVerify {
+                valid: false,
+                message: "La licencia ha expirado".into(),
+            });
+        }
     }
 
-    let license_json = std::fs::read_to_string(&license_path).map_err(|e| e.to_string())?;
-    let license: LicenseKey = serde_json::from_str(&license_json).map_err(|e| e.to_string())?;
+    // Public key.
+    let pk_raw = BASE64_STANDARD
+        .decode(&file.public_key)
+        .map_err(|e| format!("Clave pública inválida: {e}"))?;
+    let pk_bytes: [u8; 32] = pk_raw
+        .try_into()
+        .map_err(|_| "Clave pública con longitud incorrecta".to_string())?;
+    let verifying_key = VerifyingKey::from_bytes(&pk_bytes)
+        .map_err(|e| format!("Clave pública inválida: {e}"))?;
 
-    let public_key_bytes = BASE64_STANDARD.decode(&license.public_key).map_err(|e| format!("Error decodificando clave pública: {}", e))?;
-    let verifying_key = VerifyingKey::from_bytes(&public_key_bytes)
-        .map_err(|e| format!("Clave pública inválida: {}", e))?;
+    // Signature.
+    let sig_raw = BASE64_STANDARD
+        .decode(&signature_b64)
+        .map_err(|e| format!("Firma inválida: {e}"))?;
+    let sig_bytes: [u8; 64] = sig_raw
+        .try_into()
+        .map_err(|_| "La firma debe tener 64 bytes".to_string())?;
+    let signature =
+        Signature::from_slice(&sig_bytes).map_err(|e| format!("Firma inválida: {e}"))?;
 
-    let signature_bytes = BASE64_STANDARD.decode(&signature_b64).map_err(|e| format!("Error decodificando firma: {}", e))?;
-    let signature = Signature::from_slice(&signature_bytes).map_err(|e| format!("Error en firma: {}", e))?;
-
-    let is_valid = verifying_key.verify(message.as_bytes(), &signature).is_ok();
-
-    if is_valid {
-        Ok(LicenseVerify {
+    match verifying_key.verify(message.as_bytes(), &signature) {
+        Ok(()) => Ok(LicenseVerify {
             valid: true,
             message: "Licencia válida".into(),
-        })
-    } else {
-        Ok(LicenseVerify {
+        }),
+        Err(_) => Ok(LicenseVerify {
             valid: false,
-            message: "Firma inválida".into(),
-        })
+            message: "Firma inválida o mensaje alterado".into(),
+        }),
     }
 }
