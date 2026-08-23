@@ -45,8 +45,8 @@ pub fn run() {
             commands::backup::backup_database,
             commands::backup::restore_database,
             commands::backup::db_info,
-            commands::licensing::license_generate,
-            commands::licensing::license_verify,
+            licensing::license_generate,
+            licensing::license_verify,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
