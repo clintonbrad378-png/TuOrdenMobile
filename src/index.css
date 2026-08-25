@@ -26,10 +26,24 @@
     height: 100%;
   }
 
+  html {
+    -webkit-tap-highlight-color: transparent;
+  }
+
   body {
     @apply bg-surface-950 text-zinc-200 antialiased;
     font-family: var(--font-sans);
     overflow: hidden;
+    overscroll-behavior: none;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  input,
+  textarea,
+  select {
+    user-select: text;
+    -webkit-user-select: text;
   }
 
   ::selection {
@@ -46,6 +60,14 @@
     -moz-appearance: textfield;
     appearance: textfield;
   }
+}
+
+@utility pb-safe {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+@utility pt-safe {
+  padding-top: env(safe-area-inset-top);
 }
 
 ::-webkit-scrollbar {

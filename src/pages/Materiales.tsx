@@ -184,7 +184,7 @@ export default function Materiales() {
 
   return (
     <div className="h-full overflow-y-auto">
-      <div className="mx-auto max-w-6xl px-8 py-8">
+      <div className="mx-auto max-w-6xl px-4 py-5 sm:px-8 sm:py-8">
         <PageHeader
           title="Materiales"
           subtitle={
@@ -246,79 +246,73 @@ export default function Materiales() {
                 />
               </Card>
             ) : (
-              <Card className="overflow-hidden">
-                <div className="grid grid-cols-[1.5fr_0.9fr_0.9fr_1fr_auto] items-center gap-4 border-b border-white/[0.06] px-5 py-3 text-[11px] font-medium tracking-wider text-zinc-500 uppercase">
-                  <span>Material</span>
-                  <span className="text-right">Stock</span>
-                  <span className="text-right">Mínimo</span>
-                  <span className="text-right">Costo/u</span>
-                  <span className="w-[104px]" />
-                </div>
-                <div className="divide-y divide-white/[0.04]">
-                  {filtered.map((m) => {
-                    const isOut = m.stock <= 0;
-                    const isLow = !isOut && m.minStock > 0 && m.stock <= m.minStock;
-                    return (
-                      <div
-                        key={m.id}
-                        className="grid grid-cols-[1.5fr_0.9fr_0.9fr_1fr_auto] items-center gap-4 px-5 py-3 transition-colors hover:bg-white/[0.02]"
-                      >
-                        <div className="min-w-0">
-                          <p className="truncate text-sm font-medium text-zinc-100">{m.name}</p>
-                          <p className="text-[11px] text-zinc-500">Unidad: {m.unit}</p>
-                        </div>
-                        <div className="flex items-center justify-end gap-2">
-                          <span
-                            className={cn(
-                              "text-sm font-semibold tabular-nums",
-                              isOut ? "text-red-400" : isLow ? "text-amber-400" : "text-zinc-100",
-                            )}
-                          >
-                            {fmtQty(m.stock)}
-                          </span>
-                          {isOut ? (
-                            <Badge tone="danger">Agotado</Badge>
-                          ) : isLow ? (
-                            <Badge tone="warn">Bajo</Badge>
-                          ) : null}
-                        </div>
-                        <span className="text-right text-sm tabular-nums text-zinc-400">
-                          {fmtQty(m.minStock)}
-                        </span>
-                        <span className="text-right text-sm tabular-nums text-zinc-300">
-                          {fmtMoney(m.costPerUnit)}
-                        </span>
-                        <div className="flex w-[104px] items-center justify-end gap-0.5">
-                          <button
-                            title="Entrada / salida de stock"
-                            onClick={() => {
-                              setAdjustTarget(m);
-                              setAdjustMode("entrada");
-                              setAdjustAmount("");
-                            }}
-                            className="rounded-lg p-2 text-zinc-500 transition-colors hover:bg-white/[0.06] hover:text-accent-400"
-                          >
-                            <ArrowDownUp size={14} />
-                          </button>
-                          <button
-                            title="Editar"
-                            onClick={() => openEdit(m)}
-                            className="rounded-lg p-2 text-zinc-500 transition-colors hover:bg-white/[0.06] hover:text-zinc-200"
-                          >
-                            <Pencil size={14} />
-                          </button>
-                          <button
-                            title="Eliminar"
-                            onClick={() => setDeleteTarget(m)}
-                            className="rounded-lg p-2 text-zinc-500 transition-colors hover:bg-white/[0.06] hover:text-red-400"
-                          >
-                            <Trash2 size={14} />
-                          </button>
-                        </div>
+              <Card className="divide-y divide-white/[0.04]">
+                {filtered.map((m) => {
+                  const isOut = m.stock <= 0;
+                  const isLow = !isOut && m.minStock > 0 && m.stock <= m.minStock;
+                  return (
+                    <div
+                      key={m.id}
+                      className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3 transition-colors hover:bg-white/[0.02] sm:flex-nowrap sm:gap-4 sm:px-5"
+                    >
+                      <div className="min-w-0 flex-1 basis-36">
+                        <p className="truncate text-sm font-medium text-zinc-100">{m.name}</p>
+                        <p className="text-[11px] text-zinc-500">
+                          Unidad: {m.unit} · Mín: {fmtQty(m.minStock)}
+                        </p>
                       </div>
-                    );
-                  })}
-                </div>
+                      <div className="flex items-center gap-2">
+                        <span
+                          className={cn(
+                            "text-sm font-semibold tabular-nums",
+                            isOut ? "text-red-400" : isLow ? "text-amber-400" : "text-zinc-100",
+                          )}
+                        >
+                          {fmtQty(m.stock)}
+                          <span className="ml-1 text-[11px] font-normal text-zinc-500">
+                            {m.unit}
+                          </span>
+                        </span>
+                        {isOut ? (
+                          <Badge tone="danger">Agotado</Badge>
+                        ) : isLow ? (
+                          <Badge tone="warn">Bajo</Badge>
+                        ) : null}
+                      </div>
+                      <span className="order-last basis-full text-[11px] text-zinc-500 sm:order-none sm:w-24 sm:basis-auto sm:text-right sm:text-sm sm:text-zinc-300">
+                        {fmtMoney(m.costPerUnit)}
+                        <span className="sm:hidden"> costo/u</span>
+                      </span>
+                      <div className="ml-auto flex items-center gap-0.5">
+                        <button
+                          title="Entrada / salida de stock"
+                          onClick={() => {
+                            setAdjustTarget(m);
+                            setAdjustMode("entrada");
+                            setAdjustAmount("");
+                          }}
+                          className="rounded-lg p-2.5 text-zinc-500 transition-colors hover:bg-white/[0.06] hover:text-accent-400 active:bg-white/[0.06]"
+                        >
+                          <ArrowDownUp size={15} />
+                        </button>
+                        <button
+                          title="Editar"
+                          onClick={() => openEdit(m)}
+                          className="rounded-lg p-2.5 text-zinc-500 transition-colors hover:bg-white/[0.06] hover:text-zinc-200 active:bg-white/[0.06]"
+                        >
+                          <Pencil size={15} />
+                        </button>
+                        <button
+                          title="Eliminar"
+                          onClick={() => setDeleteTarget(m)}
+                          className="rounded-lg p-2.5 text-zinc-500 transition-colors hover:bg-white/[0.06] hover:text-red-400 active:bg-white/[0.06]"
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
               </Card>
             )}
           </>

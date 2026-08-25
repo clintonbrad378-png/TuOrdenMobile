@@ -128,7 +128,7 @@ export default function Reportes() {
 
   return (
     <div className="h-full overflow-y-auto">
-      <div className="mx-auto max-w-6xl px-8 py-8">
+      <div className="mx-auto max-w-6xl px-4 py-5 sm:px-8 sm:py-8">
         <PageHeader
           title="Reportes"
           subtitle="Analiza el desempeño de tus ventas por período"
@@ -141,7 +141,7 @@ export default function Reportes() {
         />
 
         {/* Range selector */}
-        <Card className="mb-6 p-4">
+        <Card className="mb-6 p-3 sm:p-4">
           <div className="flex flex-wrap items-center gap-2">
             {presets.map((p) => (
               <button
@@ -157,29 +157,31 @@ export default function Reportes() {
                 {p.label}
               </button>
             ))}
-            <div className="ml-auto flex items-end gap-2">
-              <Field label="Desde">
-                <Input
-                  type="date"
-                  value={from}
-                  onChange={(e) => {
-                    setFrom(e.target.value);
-                    setPreset("custom");
-                  }}
-                  className="w-40"
-                />
-              </Field>
-              <Field label="Hasta">
-                <Input
-                  type="date"
-                  value={to}
-                  onChange={(e) => {
-                    setTo(e.target.value);
-                    setPreset("custom");
-                  }}
-                  className="w-40"
-                />
-              </Field>
+            <div className="mt-2 flex w-full items-end gap-2 sm:mt-0 sm:ml-auto sm:w-auto">
+              <div className="min-w-0 flex-1 sm:w-40 sm:flex-none">
+                <Field label="Desde">
+                  <Input
+                    type="date"
+                    value={from}
+                    onChange={(e) => {
+                      setFrom(e.target.value);
+                      setPreset("custom");
+                    }}
+                  />
+                </Field>
+              </div>
+              <div className="min-w-0 flex-1 sm:w-40 sm:flex-none">
+                <Field label="Hasta">
+                  <Input
+                    type="date"
+                    value={to}
+                    onChange={(e) => {
+                      setTo(e.target.value);
+                      setPreset("custom");
+                    }}
+                  />
+                </Field>
+              </div>
             </div>
           </div>
         </Card>

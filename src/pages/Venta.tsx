@@ -25,6 +25,7 @@ export default function Venta() {
   const [note, setNote] = useState("");
   const [placing, setPlacing] = useState(false);
   const [lastSale, setLastSale] = useState<Sale | null>(null);
+  const [cartOpen, setCartOpen] = useState(false);
   const toast = useToast();
 
   useEffect(() => {
@@ -61,6 +62,7 @@ export default function Venta() {
   );
 
   const total = cartLines.reduce((acc, l) => acc + l.product.price * l.qty, 0);
+  const totalQty = cartLines.reduce((acc, l) => acc + l.qty, 0);
 
   const addToCart = useCallback((id: number) => {
     setCart((c) => ({ ...c, [id]: (c[id] ?? 0) + 1 }));
@@ -87,6 +89,7 @@ export default function Venta() {
       setLastSale(sale);
       setCart({});
       setNote("");
+      setCartOpen(false);
     } catch (e) {
       toast("error", errMsg(e));
     } finally {
@@ -106,7 +109,7 @@ export default function Venta() {
     <div className="flex h-full">
       {/* Products */}
       <section className="flex min-w-0 flex-1 flex-col">
-        <header className="flex items-center gap-4 px-6 pt-6 pb-3">
+        <header className="flex items-center gap-3 px-4 pt-4 pb-3 sm:gap-4 sm:px-6 sm:pt-6">
           <h1 className="text-xl font-semibold tracking-tight text-zinc-50">Venta</h1>
           <div className="relative max-w-md flex-1">
             <Search size={15} className="absolute top-1/2 left-3 -translate-y-1/2 text-zinc-500" />
@@ -119,7 +122,7 @@ export default function Venta() {
           </div>
         </header>
 
-        <div className="flex gap-2 overflow-x-auto px-6 pb-4">
+        <div className="flex gap-2 overflow-x-auto px-4 pb-4 sm:px-6">
           {categories.map((c) => (
             <button
               key={c}
@@ -136,7 +139,7 @@ export default function Venta() {
           ))}
         </div>
 
-        <div className="flex-1 overflow-y-auto px-6 pb-6">
+        <div className="flex-1 overflow-y-auto px-4 pb-6 sm:px-6">
           {filtered.length === 0 ? (
             <EmptyState
               icon={<ShoppingCart size={22} />}
@@ -148,7 +151,7 @@ export default function Venta() {
               }
             />
           ) : (
-            <div className="grid grid-cols-2 gap-3 md:grid-cols-3 2xl:grid-cols-4">
+            <div className="grid grid-cols-2 gap-2.5 sm:gap-3 lg:grid-cols-3 2xl:grid-cols-4">
               {filtered.map((p) => {
                 const inCart = cart[p.id] ?? 0;
                 return (
@@ -156,20 +159,20 @@ export default function Venta() {
                     key={p.id}
                     onClick={() => addToCart(p.id)}
                     className={cn(
-                      "relative rounded-xl border bg-surface-900 p-4 text-left transition-all",
+                      "relative rounded-xl border bg-surface-900 p-3 text-left transition-all active:scale-[0.97] active:bg-surface-800 sm:p-4",
                       inCart > 0
                         ? "border-accent-500/50 ring-1 ring-accent-500/20"
                         : "border-white/[0.06] hover:border-accent-500/30 hover:bg-surface-800",
                     )}
                   >
                     {inCart > 0 && (
-                      <span className="absolute top-2.5 right-2.5 grid h-6 w-6 place-items-center rounded-full bg-accent-500 text-[11px] font-bold text-zinc-950">
+                      <span className="absolute top-2 right-2 grid h-6 w-6 place-items-center rounded-full bg-accent-500 text-[11px] font-bold text-zinc-950 sm:top-2.5 sm:right-2.5">
                         {inCart}
                       </span>
                     )}
                     <p className="pr-7 text-sm leading-snug font-medium text-zinc-100">{p.name}</p>
                     <p className="mt-0.5 truncate text-[11px] text-zinc-500">{p.category}</p>
-                    <p className="mt-3 text-lg font-semibold tabular-nums text-accent-400">
+                    <p className="mt-2 text-lg font-semibold tabular-nums text-accent-400 sm:mt-3">
                       {fmtMoney(p.price)}
                     </p>
                   </button>
@@ -180,8 +183,8 @@ export default function Venta() {
         </div>
       </section>
 
-      {/* Cart */}
-      <aside className="flex w-[360px] shrink-0 flex-col border-l border-white/[0.06] bg-surface-900/40">
+      {/* Cart — panel lateral en desktop */}
+      <aside className="hidden w-[360px] shrink-0 flex-col border-l border-white/[0.06] bg-surface-900/40 lg:flex">
         <header className="flex items-center justify-between border-b border-white/[0.06] px-5 py-4">
           <h2 className="flex items-center gap-2 text-sm font-semibold text-zinc-100">
             <ShoppingCart size={16} className="text-accent-400" />
@@ -225,18 +228,18 @@ export default function Venta() {
                 <div className="flex items-center gap-1 rounded-lg border border-white/[0.08] bg-surface-800">
                   <button
                     onClick={() => setQty(product.id, qty - 1)}
-                    className="grid h-7 w-7 place-items-center rounded-md text-zinc-400 transition-colors hover:text-zinc-100"
+                    className="grid h-8 w-8 place-items-center rounded-md text-zinc-400 transition-colors hover:text-zinc-100 active:bg-white/[0.06]"
                   >
-                    <Minus size={13} />
+                    <Minus size={14} />
                   </button>
                   <span className="w-6 text-center text-sm font-medium tabular-nums text-zinc-100">
                     {qty}
                   </span>
                   <button
                     onClick={() => setQty(product.id, qty + 1)}
-                    className="grid h-7 w-7 place-items-center rounded-md text-zinc-400 transition-colors hover:text-zinc-100"
+                    className="grid h-8 w-8 place-items-center rounded-md text-zinc-400 transition-colors hover:text-zinc-100 active:bg-white/[0.06]"
                   >
-                    <Plus size={13} />
+                    <Plus size={14} />
                   </button>
                 </div>
                 <span className="w-20 text-right text-sm font-medium tabular-nums text-zinc-100">
@@ -244,7 +247,7 @@ export default function Venta() {
                 </span>
                 <button
                   onClick={() => setQty(product.id, 0)}
-                  className="rounded-md p-1 text-zinc-600 opacity-0 transition-opacity group-hover:opacity-100 hover:text-red-400"
+                  className="rounded-md p-1.5 text-zinc-600 transition-colors hover:text-red-400 active:text-red-400 lg:opacity-0 lg:group-hover:opacity-100"
                 >
                   <Trash2 size={14} />
                 </button>
@@ -284,6 +287,114 @@ export default function Venta() {
           </Button>
         </footer>
       </aside>
+
+      {/* Floating cart button — móvil */}
+      {cartLines.length > 0 && !cartOpen && (
+        <button
+          onClick={() => setCartOpen(true)}
+          className="fixed right-4 bottom-[calc(4.75rem+env(safe-area-inset-bottom))] z-40 flex items-center gap-2.5 rounded-full bg-accent-500 py-3 pr-5 pl-4 shadow-xl shadow-black/50 transition-transform active:scale-95 lg:hidden"
+        >
+          <span className="relative">
+            <ShoppingCart size={18} className="text-zinc-950" />
+            <span className="absolute -top-2 -right-2 grid h-4.5 min-w-4.5 place-items-center rounded-full bg-zinc-950 px-1 text-[10px] font-bold text-accent-400">
+              {totalQty}
+            </span>
+          </span>
+          <span className="text-sm font-semibold tabular-nums text-zinc-950">
+            {fmtMoney(total)}
+          </span>
+        </button>
+      )}
+
+      {/* Cart — bottom sheet en móvil */}
+      <Modal
+        open={cartOpen}
+        onClose={() => setCartOpen(false)}
+        title={`Carrito · ${cartLines.length} producto${cartLines.length === 1 ? "" : "s"}`}
+        width="sm:max-w-md"
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setCartOpen(false)}>
+              Seguir vendiendo
+            </Button>
+            <Button
+              variant="primary"
+              disabled={cartLines.length === 0}
+              loading={placing}
+              onClick={checkout}
+            >
+              Cobrar {fmtMoney(total)}
+            </Button>
+          </>
+        }
+      >
+        {cartLines.length === 0 ? (
+          <EmptyState
+            icon={<ShoppingCart size={20} />}
+            title="Carrito vacío"
+            description="Toca los productos para agregarlos."
+          />
+        ) : (
+          <div className="space-y-1">
+            {cartLines.map(({ product, qty }) => (
+              <div key={product.id} className="flex items-center gap-2 rounded-xl px-1 py-1.5">
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm text-zinc-200">{product.name}</p>
+                  <p className="text-[11px] tabular-nums text-zinc-500">
+                    {fmtMoney(product.price)} c/u
+                  </p>
+                </div>
+                <div className="flex items-center gap-1 rounded-lg border border-white/[0.08] bg-surface-800">
+                  <button
+                    onClick={() => setQty(product.id, qty - 1)}
+                    className="grid h-9 w-9 place-items-center rounded-md text-zinc-400 active:bg-white/[0.06]"
+                  >
+                    <Minus size={14} />
+                  </button>
+                  <span className="w-6 text-center text-sm font-medium tabular-nums text-zinc-100">
+                    {qty}
+                  </span>
+                  <button
+                    onClick={() => setQty(product.id, qty + 1)}
+                    className="grid h-9 w-9 place-items-center rounded-md text-zinc-400 active:bg-white/[0.06]"
+                  >
+                    <Plus size={14} />
+                  </button>
+                </div>
+                <span className="w-20 text-right text-sm font-medium tabular-nums text-zinc-100">
+                  {fmtMoney(product.price * qty)}
+                </span>
+                <button
+                  onClick={() => setQty(product.id, 0)}
+                  className="rounded-md p-1.5 text-zinc-600 transition-colors hover:text-red-400"
+                >
+                  <Trash2 size={14} />
+                </button>
+              </div>
+            ))}
+            <div className="mt-3 space-y-3 border-t border-white/[0.06] pt-3">
+              <Select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)}>
+                {PAYMENT_METHODS.map((m) => (
+                  <option key={m.value} value={m.value}>
+                    {m.label}
+                  </option>
+                ))}
+              </Select>
+              <Input
+                placeholder="Nota (opcional)"
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+              />
+              <div className="flex items-baseline justify-between">
+                <span className="text-sm text-zinc-400">Total</span>
+                <span className="text-2xl font-semibold tabular-nums text-zinc-50">
+                  {fmtMoney(total)}
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
+      </Modal>
 
       {/* Success modal */}
       <Modal open={lastSale !== null} onClose={() => setLastSale(null)} width="max-w-sm">

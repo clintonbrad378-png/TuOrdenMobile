@@ -182,17 +182,18 @@ export function Modal({
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-4">
       <div
         className="absolute inset-0 bg-black/70 backdrop-blur-sm"
         onClick={onClose}
       />
       <div
         className={cn(
-          "relative flex max-h-[85vh] w-full flex-col rounded-2xl border border-white/10 bg-surface-900 shadow-2xl",
+          "relative flex max-h-[92dvh] w-full flex-col rounded-t-2xl border border-white/10 bg-surface-900 shadow-2xl sm:max-h-[85vh] sm:rounded-2xl",
           width,
         )}
       >
+        <div className="mx-auto mt-2 h-1 w-10 shrink-0 rounded-full bg-white/15 sm:hidden" />
         <div className="flex items-center justify-between border-b border-white/[0.06] px-5 py-4">
           <h2 className="text-sm font-semibold text-zinc-100">{title}</h2>
           <button
@@ -202,9 +203,11 @@ export function Modal({
             <X size={16} />
           </button>
         </div>
-        <div className="flex-1 space-y-4 overflow-y-auto px-5 py-4">{children}</div>
+        <div className="flex-1 space-y-4 overflow-y-auto px-5 pt-4 pb-[calc(1rem+env(safe-area-inset-bottom))] sm:pb-4">
+          {children}
+        </div>
         {footer && (
-          <div className="flex items-center justify-end gap-2 border-t border-white/[0.06] px-5 py-4">
+          <div className="flex items-center justify-end gap-2 border-t border-white/[0.06] px-5 py-4 pb-[calc(1rem+env(safe-area-inset-bottom))] sm:pb-4">
             {footer}
           </div>
         )}
@@ -286,7 +289,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   return (
     <ToastCtx.Provider value={push}>
       {children}
-      <div className="pointer-events-none fixed right-5 bottom-5 z-[60] flex w-80 flex-col gap-2">
+      <div className="pointer-events-none fixed inset-x-4 top-4 z-[70] flex flex-col gap-2 sm:inset-x-auto sm:right-5 sm:bottom-5 sm:w-80">
         {toasts.map((t) => (
           <div
             key={t.id}
@@ -315,12 +318,12 @@ export function PageHeader({
   actions?: ReactNode;
 }) {
   return (
-    <header className="mb-6 flex items-end justify-between gap-4">
+    <header className="mb-5 flex flex-wrap items-end justify-between gap-x-4 gap-y-3 sm:mb-6">
       <div>
         <h1 className="text-xl font-semibold tracking-tight text-zinc-50">{title}</h1>
         {subtitle && <p className="mt-0.5 text-sm text-zinc-500">{subtitle}</p>}
       </div>
-      {actions && <div className="flex items-center gap-2">{actions}</div>}
+      {actions && <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">{actions}</div>}
     </header>
   );
 }

@@ -285,7 +285,7 @@ export default function Menu() {
 
   return (
     <div className="h-full overflow-y-auto">
-      <div className="mx-auto max-w-6xl px-8 py-8">
+      <div className="mx-auto max-w-6xl px-4 py-5 sm:px-8 sm:py-8">
         <PageHeader
           title="Menú"
           subtitle={`${products.filter((p) => p.active).length} productos activos`}
@@ -339,7 +339,7 @@ export default function Menu() {
               <button
                 key={p.id}
                 onClick={() => openEdit(p)}
-                className="grid w-full grid-cols-[1fr_auto_auto_auto] items-center gap-4 px-5 py-3.5 text-left transition-colors hover:bg-white/[0.02]"
+                className="grid w-full grid-cols-[1fr_auto_auto_auto] items-center gap-2.5 px-4 py-3 text-left transition-colors hover:bg-white/[0.02] active:bg-white/[0.03] sm:gap-4 sm:px-5"
               >
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">

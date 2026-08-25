@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { HashRouter, Route, Routes } from "react-router-dom";
 import { listen } from "@tauri-apps/api/event";
+import BottomNav from "./components/layout/BottomNav";
 import Sidebar from "./components/layout/Sidebar";
 import { ToastProvider } from "./components/ui";
 import Configuracion from "./pages/Configuracion";
@@ -15,7 +16,7 @@ function Shell() {
   return (
     <div className="flex h-full">
       <Sidebar />
-      <main className="min-w-0 flex-1 overflow-hidden">
+      <main className="min-w-0 flex-1 overflow-hidden pb-[calc(4rem+env(safe-area-inset-bottom))] lg:pb-0">
         <Routes>
           <Route path="/" element={<Dashboard />} />
           <Route path="/venta" element={<Venta />} />
@@ -26,6 +27,7 @@ function Shell() {
           <Route path="/licencia" element={<Licencia />} />
         </Routes>
       </main>
+      <BottomNav />
     </div>
   );
 }

@@ -21,7 +21,7 @@ const NAV = [
 
 export default function Sidebar() {
   return (
-    <aside className="flex w-60 shrink-0 flex-col border-r border-white/[0.06] bg-surface-900/40 p-4">
+    <aside className="hidden w-60 shrink-0 flex-col border-r border-white/[0.06] bg-surface-900/40 p-4 lg:flex">
       <div className="flex items-center gap-3 px-2 pt-2 pb-6">
         <div className="grid h-9 w-9 place-items-center rounded-xl border border-accent-500/20 bg-accent-500/15 text-accent-400">
           <ChefHat size={18} />

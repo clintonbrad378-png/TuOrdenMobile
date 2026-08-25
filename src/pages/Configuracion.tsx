@@ -99,7 +99,7 @@ export default function Configuracion() {
 
   return (
     <div className="h-full overflow-y-auto">
-      <div className="mx-auto max-w-3xl px-8 py-8">
+      <div className="mx-auto max-w-3xl px-4 py-5 sm:px-8 sm:py-8">
         <PageHeader
           title="Configuración"
           subtitle="Respaldos y estado de tu base de datos"
