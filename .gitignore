@@ -22,3 +22,8 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Keystore y llaves privadas
+licenses/
+*.jks
+*.keystore
