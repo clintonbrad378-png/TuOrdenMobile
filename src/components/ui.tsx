@@ -340,19 +340,21 @@ export function StatCard({
   icon?: ReactNode;
 }) {
   return (
-    <Card className="p-5">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-[11px] font-medium tracking-wider text-zinc-500 uppercase">
+    <Card className="p-4 sm:p-5">
+      <div className="flex items-start justify-between gap-2 sm:gap-3">
+        <div className="min-w-0 flex-1">
+          <p className="text-[10px] font-medium tracking-wider text-zinc-500 uppercase sm:text-[11px]">
             {label}
           </p>
-          <p className="mt-1.5 truncate text-2xl font-semibold tabular-nums text-zinc-50">
+          <p className="mt-1 text-xl font-semibold break-words tabular-nums text-zinc-50 sm:mt-1.5 sm:text-2xl">
             {value}
           </p>
-          {hint && <p className="mt-1 truncate text-xs text-zinc-500">{hint}</p>}
+          {hint && (
+            <p className="mt-1 text-[11px] leading-snug text-zinc-500 sm:text-xs">{hint}</p>
+          )}
         </div>
         {icon && (
-          <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-accent-500/10 text-accent-400">
+          <div className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-accent-500/10 text-accent-400 sm:h-10 sm:w-10">
             {icon}
           </div>
         )}

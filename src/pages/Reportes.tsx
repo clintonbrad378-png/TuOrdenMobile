@@ -190,7 +190,7 @@ export default function Reportes() {
           <div className="grid h-64 place-items-center">{loading && <Spinner />}</div>
         ) : (
           <>
-            <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-3 xl:grid-cols-4">
               <StatCard
                 label="Ventas totales"
                 value={fmtMoney(report.totalSales)}
@@ -226,7 +226,7 @@ export default function Reportes() {
               {report.byDay.length === 0 ? (
                 <EmptyState title="Sin datos en este rango" />
               ) : (
-                <div className="mt-4 h-64">
+                <div className="mt-4 h-56 sm:h-64">
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={report.byDay} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
                       <CartesianGrid stroke="rgba(255,255,255,0.05)" vertical={false} />
@@ -267,13 +267,11 @@ export default function Reportes() {
                   <div className="mt-4 space-y-3">
                     {report.byProduct.map((p) => (
                       <div key={p.name}>
-                        <div className="flex items-baseline justify-between gap-3">
-                          <p className="truncate text-sm text-zinc-200">{p.name}</p>
-                          <p className="shrink-0 text-xs tabular-nums text-zinc-500">
+                        <div className="flex flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between sm:gap-3">
+                          <p className="min-w-0 truncate text-sm text-zinc-200">{p.name}</p>
+                          <p className="shrink-0 text-right text-xs leading-relaxed break-words tabular-nums text-zinc-500">
                             {fmtQty(p.qty)} u · {fmtMoney(p.total)} ·{" "}
-                            <span className="font-medium text-accent-400">
-                              +{fmtMoney(p.profit)}
-                            </span>
+                            <span className="font-medium text-accent-400">+{fmtMoney(p.profit)}</span>
                           </p>
                         </div>
                         <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-white/[0.05]">

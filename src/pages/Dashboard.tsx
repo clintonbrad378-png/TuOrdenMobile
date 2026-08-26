@@ -90,7 +90,7 @@ export default function Dashboard() {
           }
         />
 
-        <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-3 xl:grid-cols-4">
           <StatCard
             label="Ventas hoy"
             value={fmtMoney(stats.todayTotal)}
@@ -136,7 +136,7 @@ export default function Dashboard() {
         <div className="mt-6 grid gap-4 lg:grid-cols-[1.7fr_1fr]">
           <Card className="p-5">
             <h2 className="text-sm font-medium text-zinc-200">Ventas · últimos 7 días</h2>
-            <div className="mt-4 h-64">
+            <div className="mt-4 h-56 sm:h-64">
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={stats.salesByDay} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
                   <defs>
@@ -231,18 +231,16 @@ export default function Dashboard() {
           ) : (
             <div className="mt-4 space-y-3">
               {stats.topProducts.map((p, i) => (
-                <div key={p.name} className="flex items-center gap-3">
-                  <span className="w-5 text-right text-xs tabular-nums text-zinc-600">
+                <div key={p.name} className="flex items-start gap-3">
+                  <span className="w-5 shrink-0 pt-0.5 text-right text-xs tabular-nums text-zinc-600">
                     {i + 1}
                   </span>
                   <div className="min-w-0 flex-1">
-                    <div className="flex items-baseline justify-between gap-3">
-                      <p className="truncate text-sm text-zinc-200">{p.name}</p>
-                      <p className="shrink-0 text-xs tabular-nums text-zinc-500">
+                    <div className="flex flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between sm:gap-3">
+                      <p className="min-w-0 truncate text-sm text-zinc-200">{p.name}</p>
+                      <p className="shrink-0 text-right text-xs leading-relaxed break-words tabular-nums text-zinc-500">
                         {fmtQty(p.qty)} u · {fmtMoney(p.total)} ·{" "}
-                        <span className="font-medium text-accent-400">
-                          +{fmtMoney(p.profit)}
-                        </span>
+                        <span className="font-medium text-accent-400">+{fmtMoney(p.profit)}</span>
                       </p>
                     </div>
                     <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-white/[0.05]">
