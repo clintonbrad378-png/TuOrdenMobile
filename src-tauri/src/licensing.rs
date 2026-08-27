@@ -21,6 +21,16 @@ pub struct LicenseVerify {
     pub message: String,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LicenseCheck {
+    pub valid: bool,
+    pub message: String,
+    pub public_key: Option<String>,
+    pub expires_at: Option<String>,
+    pub needs_activation: bool,
+}
+
 #[derive(Serialize, Deserialize)]
 struct LicenseFile {
     public_key: String,
@@ -159,4 +169,45 @@ pub async fn license_verify(
             message: "Firma inválida o mensaje alterado".into(),
         }),
     }
+}
+
+#[tauri::command]
+pub async fn license_check(state: State<'_, AppState>) -> Result<LicenseCheck, String> {
+    let path = license_path(&state)?;
+    if !path.exists() {
+        return Ok(LicenseCheck {
+            valid: false,
+            message: "No hay licencia activa. Solicite activación.".into(),
+            public_key: None,
+            expires_at: None,
+            needs_activation: true,
+        });
+    }
+
+    let json = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    let file: LicenseFile =
+        serde_json::from_str(&json).map_err(|e| format!("Archivo de licencia corrupto: {e}"))?;
+
+    if let Some(exp) = &file.expires_at {
+        let exp_u64: u64 = exp
+            .parse()
+            .map_err(|_| "Fecha de expiración inválida".to_string())?;
+        if now_secs()? > exp_u64 {
+            return Ok(LicenseCheck {
+                valid: false,
+                message: "La licencia ha expirado".into(),
+                public_key: Some(file.public_key),
+                expires_at: file.expires_at,
+                needs_activation: true,
+            });
+        }
+    }
+
+    Ok(LicenseCheck {
+        valid: true,
+        message: "Licencia válida".into(),
+        public_key: Some(file.public_key),
+        expires_at: file.expires_at,
+        needs_activation: false,
+    })
 }

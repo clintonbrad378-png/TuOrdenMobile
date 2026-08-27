@@ -178,3 +178,11 @@ export interface LicenseVerify {
 export interface LicenseGenerate {
   expires_days: number | null;
 }
+
+export interface LicenseCheck {
+  valid: boolean;
+  message: string;
+  publicKey: string | null;
+  expiresAt: string | null;
+  needsActivation: boolean;
+}

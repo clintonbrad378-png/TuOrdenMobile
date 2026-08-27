@@ -1,4 +1,5 @@
 use crate::AppState;
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use rusqlite::params;
 use std::io::Write;
 use tauri::State;
@@ -65,4 +66,21 @@ pub async fn export_sales_csv(
         .map_err(|e| format!("No se pudo escribir el archivo: {e}"))?;
 
     Ok(count)
+}
+
+#[tauri::command]
+pub async fn write_file_base64(path: String, content_base64: String) -> Result<(), String> {
+    let bytes = BASE64
+        .decode(content_base64.trim())
+        .map_err(|e| format!("Contenido base64 inválido: {e}"))?;
+
+    if let Some(parent) = std::path::Path::new(&path).parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| format!("No se pudo crear la carpeta destino: {e}"))?;
+        }
+    }
+
+    std::fs::write(&path, bytes).map_err(|e| format!("No se pudo escribir el archivo: {e}"))?;
+    Ok(())
 }

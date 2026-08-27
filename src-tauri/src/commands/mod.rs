@@ -1,3 +1,4 @@
+pub mod auth;
 pub mod backup;
 pub mod materials;
 pub mod products;

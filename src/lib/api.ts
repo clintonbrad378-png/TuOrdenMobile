@@ -4,6 +4,7 @@ import type {
   CreateSaleInput,
   DashboardStats,
   DbInfo,
+  LicenseCheck,
   LicenseKey,
   Material,
   Movement,
@@ -49,6 +50,8 @@ export const api = {
   reportData: (from: string, to: string) => invoke<ReportData>("report_data", { from, to }),
   exportSalesCsv: (from: string, to: string, path: string) =>
     invoke<number>("export_sales_csv", { from, to, path }),
+  writeFileBase64: (path: string, contentBase64: string) =>
+    invoke<void>("write_file_base64", { path, contentBase64 }),
 
   // Backup
   backupDatabase: (path: string) => invoke<string>("backup_database", { path }),
@@ -58,5 +61,13 @@ export const api = {
   licenseGenerate: (expiresDays?: number) => invoke<LicenseKey>("license_generate", { expiresDays }),
   licenseStatus: () => invoke<LicenseKey>("license_status"),
   licenseSign: (message: string) => invoke<string>("license_sign", { message }),
-  licenseVerify: (signature: string, message: string) => invoke<LicenseVerify>("license_verify", { signature, message }),
+  licenseVerify: (signature: string, message: string) =>
+    invoke<LicenseVerify>("license_verify", { signatureB64: signature, message }),
+  licenseCheck: () => invoke<LicenseCheck>("license_check"),
+
+  // Auth - manager PIN
+  managerPinExists: () => invoke<boolean>("manager_pin_exists"),
+  verifyManagerPin: (pin: string) => invoke<boolean>("verify_manager_pin", { pin }),
+  setManagerPin: (pin: string) => invoke<void>("set_manager_pin", { pin }),
+  getManagerPinHint: () => invoke<string>("get_manager_pin_hint"),
 };

@@ -8,6 +8,7 @@ import {
   UtensilsCrossed,
 } from "lucide-react";
 import { cn } from "../ui";
+import { useAuth } from "../../lib/auth";
 
 const NAV = [
   { to: "/", label: "Inicio", icon: LayoutDashboard, end: true },
@@ -18,11 +19,48 @@ const NAV = [
   { to: "/configuracion", label: "Ajustes", icon: Settings, end: false },
 ];
 
+const VENTA_ONLY = [
+  { to: "/venta", label: "Venta", icon: ShoppingCart, end: false },
+];
+
 export default function BottomNav() {
+  const { isDependiente } = useAuth();
+  const nav = isDependiente ? VENTA_ONLY : NAV;
+  const cols = isDependiente ? "grid-cols-1" : "grid-cols-6";
+
+  // En modo dependiente solo mostrar venta centrado + banner
+  if (isDependiente) {
+    return (
+      <nav className="pb-safe fixed inset-x-0 bottom-0 z-40 border-t border-white/[0.08] bg-surface-900/95 backdrop-blur lg:hidden">
+        <div className="flex h-16 items-center justify-center gap-3 px-4">
+          <span className="rounded-full border border-amber-500/20 bg-amber-500/10 px-2.5 py-1 text-[10px] font-medium text-amber-300">
+            Modo dependiente
+          </span>
+          {nav.map(({ to, label, icon: Icon, end }) => (
+            <NavLink
+              key={to}
+              to={to}
+              end={end}
+              className={({ isActive }) =>
+                cn(
+                  "relative flex touch-none flex-col items-center justify-center gap-1 rounded-xl px-6 py-1.5 transition-colors active:bg-white/[0.06]",
+                  isActive ? "bg-white/[0.07] text-accent-400" : "text-zinc-400",
+                )
+              }
+            >
+              <Icon size={20} />
+              <span className="text-[10px] leading-none font-medium">{label}</span>
+            </NavLink>
+          ))}
+        </div>
+      </nav>
+    );
+  }
+
   return (
     <nav className="pb-safe fixed inset-x-0 bottom-0 z-40 border-t border-white/[0.08] bg-surface-900/95 backdrop-blur lg:hidden">
-      <div className="grid h-16 grid-cols-6">
-        {NAV.map(({ to, label, icon: Icon, end }) => (
+      <div className={`grid h-16 ${cols}`}>
+        {nav.map(({ to, label, icon: Icon, end }) => (
           <NavLink
             key={to}
             to={to}

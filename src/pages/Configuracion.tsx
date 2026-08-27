@@ -3,21 +3,27 @@ import { open, save } from "@tauri-apps/plugin-dialog";
 import {
   Copy,
   Database,
+  Eye,
+  EyeOff,
   HardDriveDownload,
   Info,
+  Lock,
   Package,
   RotateCcw,
+  Shield,
   ShoppingBag,
   Upload,
 } from "lucide-react";
 import { api } from "../lib/api";
 import type { DbInfo } from "../lib/types";
 import { errMsg, humanSize, isoToday } from "../lib/format";
+import { useAuth } from "../lib/auth";
 import {
   Badge,
   Button,
   Card,
   ConfirmDialog,
+  Input,
   PageHeader,
   Spinner,
   useToast,
@@ -29,6 +35,13 @@ export default function Configuracion() {
   const [restoring, setRestoring] = useState(false);
   const [restorePath, setRestorePath] = useState<string | null>(null);
   const toast = useToast();
+  const { isDependiente } = useAuth();
+  const [pinHint, setPinHint] = useState<string>("");
+  const [currentPin, setCurrentPin] = useState("");
+  const [newPin, setNewPin] = useState("");
+  const [confirmPin, setConfirmPin] = useState("");
+  const [showPins, setShowPins] = useState(false);
+  const [savingPin, setSavingPin] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -36,8 +49,14 @@ export default function Configuracion() {
     } catch (e) {
       toast("error", errMsg(e));
     }
+    try {
+      if (!isDependiente) {
+        const hint = await api.getManagerPinHint();
+        setPinHint(hint);
+      }
+    } catch {}
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [isDependiente]);
 
   useEffect(() => {
     load();
@@ -94,6 +113,40 @@ export default function Configuracion() {
       toast("info", "Ruta copiada al portapapeles");
     } catch {
       toast("error", "No se pudo copiar la ruta");
+    }
+  };
+
+  const handleChangePin = async () => {
+    if (!currentPin.trim() || !newPin.trim() || !confirmPin.trim()) {
+      toast("error", "Completa todos los campos de PIN");
+      return;
+    }
+    if (newPin !== confirmPin) {
+      toast("error", "El nuevo PIN y la confirmación no coinciden");
+      return;
+    }
+    if (newPin.length < 4 || newPin.length > 12 || !/^\d+$/.test(newPin)) {
+      toast("error", "El PIN debe ser de 4 a 12 dígitos numéricos");
+      return;
+    }
+    setSavingPin(true);
+    try {
+      const ok = await api.verifyManagerPin(currentPin.trim());
+      if (!ok) {
+        toast("error", "PIN actual incorrecto");
+        return;
+      }
+      await api.setManagerPin(newPin.trim());
+      const hint = await api.getManagerPinHint();
+      setPinHint(hint);
+      setCurrentPin("");
+      setNewPin("");
+      setConfirmPin("");
+      toast("success", "PIN de gerente actualizado correctamente");
+    } catch (e) {
+      toast("error", errMsg(e));
+    } finally {
+      setSavingPin(false);
     }
   };
 
@@ -178,6 +231,92 @@ export default function Configuracion() {
           </div>
         </Card>
 
+        {/* PIN Gerente */}
+        {!isDependiente ? (
+          <Card className="mt-6 p-5">
+            <div className="flex items-center justify-between">
+              <h2 className="flex items-center gap-2 text-sm font-medium text-zinc-200">
+                <Lock size={16} className="text-accent-400" />
+                PIN de Gerente
+              </h2>
+              <Badge tone={pinHint ? "accent" : "zinc"}>{pinHint ? `Actual: ${pinHint}` : "Sin configurar"}</Badge>
+            </div>
+            <p className="mt-1.5 text-xs leading-relaxed text-zinc-500">
+              Este PIN protege el acceso completo a la app. El modo dependiente no lo necesita. Por defecto es <span className="font-mono text-zinc-400">1234</span>.
+            </p>
+
+            <div className="mt-4 grid gap-3">
+              <div className="grid gap-1.5">
+                <label className="text-xs font-medium text-zinc-400">PIN actual</label>
+                <div className="relative">
+                  <Input
+                    type={showPins ? "text" : "password"}
+                    inputMode="numeric"
+                    placeholder="Ingresa PIN actual"
+                    value={currentPin}
+                    onChange={(e) => setCurrentPin(e.target.value.replace(/\D/g, "").slice(0, 12))}
+                    className="pr-9"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPins((v) => !v)}
+                    className="absolute top-1/2 right-2 -translate-y-1/2 rounded-md p-1 text-zinc-500 hover:bg-white/5"
+                  >
+                    {showPins ? <EyeOff size={14} /> : <Eye size={14} />}
+                  </button>
+                </div>
+              </div>
+              <div className="grid gap-1.5">
+                <label className="text-xs font-medium text-zinc-400">Nuevo PIN (4-12 dígitos)</label>
+                <Input
+                  type={showPins ? "text" : "password"}
+                  inputMode="numeric"
+                  placeholder="Nuevo PIN"
+                  value={newPin}
+                  onChange={(e) => setNewPin(e.target.value.replace(/\D/g, "").slice(0, 12))}
+                />
+              </div>
+              <div className="grid gap-1.5">
+                <label className="text-xs font-medium text-zinc-400">Confirmar nuevo PIN</label>
+                <Input
+                  type={showPins ? "text" : "password"}
+                  inputMode="numeric"
+                  placeholder="Repite el nuevo PIN"
+                  value={confirmPin}
+                  onChange={(e) => setConfirmPin(e.target.value.replace(/\D/g, "").slice(0, 12))}
+                />
+              </div>
+            </div>
+
+            <div className="mt-4 flex gap-2">
+              <Button variant="primary" onClick={handleChangePin} loading={savingPin}>
+                <Shield size={15} />
+                {savingPin ? "Guardando..." : "Actualizar PIN"}
+              </Button>
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  setCurrentPin("");
+                  setNewPin("");
+                  setConfirmPin("");
+                }}
+              >
+                Limpiar
+              </Button>
+            </div>
+          </Card>
+        ) : (
+          <Card className="mt-6 p-5 border-amber-500/15 bg-amber-500/[0.04]">
+            <div className="flex items-center gap-2 text-sm font-medium text-amber-300">
+              <Shield size={16} />
+              Modo dependiente activo
+            </div>
+            <p className="mt-1.5 text-xs leading-relaxed text-zinc-500">
+              No tienes permiso para cambiar el PIN de gerente ni ver esta configuración completa. Inicia sesión como gerente para gestionar el PIN.
+            </p>
+          </Card>
+        )}
+
         {/* About */}
         <Card className="mt-6 p-5">
           <h2 className="flex items-center gap-2 text-sm font-medium text-zinc-200">
@@ -186,7 +325,7 @@ export default function Configuracion() {
           </h2>
           <div className="mt-3 space-y-1 text-xs text-zinc-500">
             <p>
-              <strong className="text-zinc-300">TuOrden POS</strong> · v0.1.0
+              <strong className="text-zinc-300">TuOrden POS</strong> · v0.2.0
             </p>
             <p>
               Punto de venta con control de inventario por recetas. Los materiales se descuentan

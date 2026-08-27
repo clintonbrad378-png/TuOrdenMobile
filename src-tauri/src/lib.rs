@@ -42,13 +42,19 @@ pub fn run() {
             commands::stats::dashboard_stats,
             commands::stats::report_data,
             commands::reports::export_sales_csv,
+            commands::reports::write_file_base64,
             commands::backup::backup_database,
             commands::backup::restore_database,
             commands::backup::db_info,
+            commands::auth::manager_pin_exists,
+            commands::auth::verify_manager_pin,
+            commands::auth::set_manager_pin,
+            commands::auth::get_manager_pin_hint,
             licensing::license_generate,
             licensing::license_status,
             licensing::license_sign,
             licensing::license_verify,
+            licensing::license_check,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

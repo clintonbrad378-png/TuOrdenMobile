@@ -8,7 +8,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { CalendarDays, Coins, FileDown, ShoppingBag, TrendingUp, Wallet } from "lucide-react";
+import { CalendarDays, Coins, FileDown, FileText, ShoppingBag, TrendingUp, Wallet } from "lucide-react";
 import { save } from "@tauri-apps/plugin-dialog";
 import { api } from "../lib/api";
 import type { ReportData } from "../lib/types";
@@ -47,6 +47,7 @@ export default function Reportes() {
   const [report, setReport] = useState<ReportData | null>(null);
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
+  const [exportingPdf, setExportingPdf] = useState(false);
   const toast = useToast();
 
   const applyPreset = useCallback((p: Preset) => {
@@ -117,6 +118,59 @@ export default function Reportes() {
     }
   };
 
+  const exportPdf = async () => {
+    if (!report) {
+      toast("error", "No hay datos para exportar");
+      return;
+    }
+    setExportingPdf(true);
+    try {
+      // Carga perezosa para no inflar bundle inicial
+      const { generateReportPdf } = await import("../lib/reportPdf");
+      // Generar PDF en memoria
+      const doc = generateReportPdf(report, from, to);
+      const defaultName = `reporte_${from}_${to}.pdf`;
+
+      // Intentar usar diálogo nativo de Tauri (elige ubicación)
+      let savePath: string | null = null;
+      try {
+        const p = await save({
+          title: "Exportar reporte a PDF",
+          defaultPath: defaultName,
+          filters: [{ name: "PDF", extensions: ["pdf"] }],
+        });
+        if (typeof p === "string" && p) savePath = p;
+      } catch {
+        // No es entorno Tauri o diálogo falló -> fallback a descarga directa
+        savePath = null;
+      }
+
+      if (savePath) {
+        // Escribir vía Rust (base64) para respetar ruta elegida
+        const ab = doc.output("arraybuffer") as ArrayBuffer;
+        const bytes = new Uint8Array(ab);
+        let binary = "";
+        // Evitar stack overflow en arrays grandes: chunked
+        const chunkSize = 0x8000;
+        for (let i = 0; i < bytes.length; i += chunkSize) {
+          const chunk = bytes.subarray(i, i + chunkSize);
+          binary += String.fromCharCode(...chunk);
+        }
+        const base64 = btoa(binary);
+        await api.writeFileBase64(savePath, base64);
+        toast("success", `PDF exportado a:\n${savePath}`);
+      } else {
+        // Fallback navegador / descarga directa
+        doc.save(defaultName);
+        toast("success", "PDF descargado");
+      }
+    } catch (e) {
+      toast("error", errMsg(e));
+    } finally {
+      setExportingPdf(false);
+    }
+  };
+
   const presets: { value: Preset; label: string }[] = [
     { value: "hoy", label: "Hoy" },
     { value: "ayer", label: "Ayer" },
@@ -133,10 +187,16 @@ export default function Reportes() {
           title="Reportes"
           subtitle="Analiza el desempeño de tus ventas por período"
           actions={
-            <Button onClick={exportCsv} loading={exporting}>
-              <FileDown size={15} />
-              Exportar CSV
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" onClick={exportPdf} loading={exportingPdf} disabled={!report || loading}>
+                <FileText size={15} />
+                Exportar PDF
+              </Button>
+              <Button onClick={exportCsv} loading={exporting}>
+                <FileDown size={15} />
+                Exportar CSV
+              </Button>
+            </div>
           }
         />
 

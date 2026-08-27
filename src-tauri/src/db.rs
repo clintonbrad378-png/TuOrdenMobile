@@ -76,6 +76,14 @@ UPDATE sale_items SET unit_cost = COALESCE((
 WHERE product_id IS NOT NULL;
 "#;
 
+const MIGRATION_V3: &str = r#"
+CREATE TABLE IF NOT EXISTS app_config (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+INSERT OR IGNORE INTO app_config (key, value) VALUES ('manager_pin', '1234');
+"#;
+
 pub fn init_db(path: &std::path::Path) -> Result<Connection, Box<dyn std::error::Error>> {
     let conn = Connection::open(path)?;
     conn.pragma_update(None, "foreign_keys", "ON")?;
@@ -92,6 +100,10 @@ fn migrate(conn: &Connection) -> Result<(), Box<dyn std::error::Error>> {
     if version < 2 {
         conn.execute_batch(MIGRATION_V2)?;
         conn.pragma_update(None, "user_version", 2)?;
+    }
+    if version < 3 {
+        conn.execute_batch(MIGRATION_V3)?;
+        conn.pragma_update(None, "user_version", 3)?;
     }
     Ok(())
 }
