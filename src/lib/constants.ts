@@ -1,4 +1,4 @@
-export const UNITS = ["g", "kg", "ml", "L", "u"];
+export const UNITS = ["g", "kg", "lb", "ml", "L", "u"];
 
 export const PAYMENT_METHODS = [
   { value: "efectivo", label: "Efectivo" },
@@ -15,4 +15,6 @@ export const REASON_LABELS: Record<string, string> = {
   salida: "Salida",
   ajuste: "Ajuste",
   inicial: "Inicial",
+  merma: "Merma",
+  consumo_interno: "Consumo interno",
 };

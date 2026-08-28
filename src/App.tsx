@@ -14,6 +14,8 @@ import Materiales from "./pages/Materiales";
 import Menu from "./pages/Menu";
 import Reportes from "./pages/Reportes";
 import Venta from "./pages/Venta";
+import Entradas from "./pages/Entradas";
+import Mermas from "./pages/Mermas";
 
 function DependienteGuard({ children }: { children: React.ReactNode }) {
   const { isDependiente } = useAuth();
@@ -50,6 +52,8 @@ function Shell() {
               <Route path="/venta" element={<Venta />} />
               <Route path="/menu" element={<Menu />} />
               <Route path="/materiales" element={<Materiales />} />
+              <Route path="/entradas" element={<Entradas />} />
+              <Route path="/mermas" element={<Mermas />} />
               <Route path="/reportes" element={<Reportes />} />
               <Route path="/configuracion" element={<Configuracion />} />
               <Route path="/licencia" element={<Licencia />} />

@@ -5,6 +5,8 @@ import {
   LayoutDashboard,
   Settings,
   ShoppingCart,
+  Trash2,
+  Truck,
   UtensilsCrossed,
 } from "lucide-react";
 import { cn } from "../ui";
@@ -15,6 +17,8 @@ const NAV = [
   { to: "/venta", label: "Venta", icon: ShoppingCart, end: false },
   { to: "/menu", label: "Menú", icon: UtensilsCrossed, end: false },
   { to: "/materiales", label: "Materiales", icon: Boxes, end: false },
+  { to: "/entradas", label: "Entradas", icon: Truck, end: false },
+  { to: "/mermas", label: "Mermas", icon: Trash2, end: false },
   { to: "/reportes", label: "Reportes", icon: BarChart3, end: false },
   { to: "/configuracion", label: "Ajustes", icon: Settings, end: false },
 ];
@@ -26,7 +30,7 @@ const VENTA_ONLY = [
 export default function BottomNav() {
   const { isDependiente } = useAuth();
   const nav = isDependiente ? VENTA_ONLY : NAV;
-  const cols = isDependiente ? "grid-cols-1" : "grid-cols-6";
+  const cols = isDependiente ? "grid-cols-1" : "grid-cols-8";
 
   // En modo dependiente solo mostrar venta centrado + banner
   if (isDependiente) {

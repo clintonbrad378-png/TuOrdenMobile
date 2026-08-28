@@ -2,7 +2,31 @@ use crate::db::fmt_qty;
 use crate::models::*;
 use crate::AppState;
 use rusqlite::{params, OptionalExtension};
+use serde::Deserialize;
 use tauri::State;
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReceiveMaterialInput {
+    pub material_id: i64,
+    pub quantity: f64,
+    pub cost_per_unit: f64,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WasteMaterialInput {
+    pub material_id: i64,
+    pub quantity: f64,
+    pub reason: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InternalConsumptionInput {
+    pub product_id: i64,
+    pub quantity: i64,
+}
 
 const MATERIAL_COLS: &str =
     "id, name, unit, stock, min_stock, cost_per_unit, created_at, updated_at";
@@ -221,4 +245,180 @@ pub async fn list_movements(
         })
         .map_err(|e| e.to_string())?;
     rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn receive_material(
+    state: State<'_, AppState>,
+    input: ReceiveMaterialInput,
+) -> Result<Material, String> {
+    if input.quantity <= 0.0 {
+        return Err("La cantidad debe ser mayor a cero".into());
+    }
+    if input.cost_per_unit < 0.0 {
+        return Err("El costo por unidad no puede ser negativo".into());
+    }
+
+    let conn = state.db.lock().map_err(|_| "Error interno")?;
+
+    let (current_stock, current_cost): (f64, f64) = conn
+        .query_row(
+            "SELECT stock, cost_per_unit FROM materials WHERE id = ?1",
+            params![input.material_id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "Material no encontrado".to_string())?;
+
+    let new_stock = current_stock + input.quantity;
+    let new_cost = if new_stock > 0.0 {
+        ((current_stock * current_cost) + (input.quantity * input.cost_per_unit)) / new_stock
+    } else {
+        input.cost_per_unit
+    };
+
+    conn.execute(
+        "UPDATE materials SET stock = ?1, cost_per_unit = ?2, updated_at = datetime('now','localtime') WHERE id = ?3",
+        params![new_stock, new_cost, input.material_id],
+    )
+    .map_err(|e| e.to_string())?;
+
+    conn.execute(
+        "INSERT INTO stock_movements (material_id, change, reason) VALUES (?1, ?2, 'entrada')",
+        params![input.material_id, input.quantity],
+    )
+    .map_err(|e| e.to_string())?;
+
+    conn.query_row(
+        &format!("SELECT {MATERIAL_COLS} FROM materials WHERE id = ?1"),
+        params![input.material_id],
+        |r| map_material(r),
+    )
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn waste_material(
+    state: State<'_, AppState>,
+    input: WasteMaterialInput,
+) -> Result<Material, String> {
+    if input.quantity <= 0.0 {
+        return Err("La cantidad debe ser mayor a cero".into());
+    }
+    if input.reason.trim().is_empty() {
+        return Err("El motivo es obligatorio".into());
+    }
+
+    let conn = state.db.lock().map_err(|_| "Error interno")?;
+    let stock: f64 = conn
+        .query_row(
+            "SELECT stock FROM materials WHERE id = ?1",
+            params![input.material_id],
+            |r| r.get(0),
+        )
+        .optional()
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "Material no encontrado".to_string())?;
+
+    if stock < input.quantity {
+        return Err(format!(
+            "No puedes desperdiciar más de lo disponible (stock actual: {})",
+            fmt_qty(stock)
+        ));
+    }
+
+    conn.execute(
+        "UPDATE materials SET stock = stock - ?1, updated_at = datetime('now','localtime') WHERE id = ?2",
+        params![input.quantity, input.material_id],
+    )
+    .map_err(|e| e.to_string())?;
+
+    conn.execute(
+        "INSERT INTO stock_movements (material_id, change, reason) VALUES (?1, ?2, 'merma')",
+        params![input.material_id, -input.quantity],
+    )
+    .map_err(|e| e.to_string())?;
+
+    conn.query_row(
+        &format!("SELECT {MATERIAL_COLS} FROM materials WHERE id = ?1"),
+        params![input.material_id],
+        |r| map_material(r),
+    )
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn internal_consumption(
+    state: State<'_, AppState>,
+    input: InternalConsumptionInput,
+) -> Result<(), String> {
+    if input.quantity <= 0 {
+        return Err("La cantidad debe ser mayor a cero".into());
+    }
+
+    let conn = state.db.lock().map_err(|_| "Error interno")?;
+
+    let mut stmt = conn
+        .prepare(
+            "SELECT material_id, quantity FROM product_recipes WHERE product_id = ?1",
+        )
+        .map_err(|e| e.to_string())?;
+    let recipe_rows = stmt
+        .query_map(params![input.product_id], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, f64>(1)?)))
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+
+    if recipe_rows.is_empty() {
+        return Err("El producto no tiene receta definida".into());
+    }
+
+    for (material_id, qty_per_unit) in &recipe_rows {
+        let total_qty: f64 = *qty_per_unit * input.quantity as f64;
+        let mat_id: i64 = *material_id;
+        let stock: f64 = conn
+            .query_row(
+                "SELECT stock FROM materials WHERE id = ?1",
+                params![mat_id],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| "Material no encontrado".to_string())?;
+
+        if stock < total_qty {
+            let name: String = conn
+                .query_row(
+                    "SELECT name FROM materials WHERE id = ?1",
+                    params![mat_id],
+                    |r| r.get::<_, String>(0),
+                )
+                .map_err(|e| e.to_string())?;
+            return Err(format!(
+                "Stock insuficiente de {} (disponible: {}, requerido: {})",
+                name,
+                fmt_qty(stock),
+                fmt_qty(total_qty)
+            ));
+        }
+    }
+
+    for (material_id, qty_per_unit) in &recipe_rows {
+        let total_qty: f64 = *qty_per_unit * input.quantity as f64;
+        let mat_id: i64 = *material_id;
+        conn.execute(
+            "UPDATE materials SET stock = stock - ?1, updated_at = datetime('now','localtime') WHERE id = ?2",
+            params![total_qty, mat_id],
+        )
+        .map_err(|e| e.to_string())?;
+
+        conn.execute(
+            "INSERT INTO stock_movements (material_id, change, reason) VALUES (?1, ?2, 'consumo_interno')",
+            params![mat_id, -total_qty],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+
+    Ok(())
 }

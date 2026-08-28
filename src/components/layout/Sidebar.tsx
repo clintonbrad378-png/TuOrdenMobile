@@ -8,6 +8,8 @@ import {
   Settings,
   Shield,
   ShoppingCart,
+  Trash2,
+  Truck,
   UtensilsCrossed,
 } from "lucide-react";
 import { cn } from "../ui";
@@ -18,6 +20,8 @@ const NAV = [
   { to: "/venta", label: "Venta", icon: ShoppingCart, end: false },
   { to: "/menu", label: "Menú", icon: UtensilsCrossed, end: false },
   { to: "/materiales", label: "Materiales", icon: Boxes, end: false },
+  { to: "/entradas", label: "Entradas", icon: Truck, end: false },
+  { to: "/mermas", label: "Mermas", icon: Trash2, end: false },
   { to: "/reportes", label: "Reportes", icon: BarChart3, end: false },
   { to: "/configuracion", label: "Configuración", icon: Settings, end: false },
 ];

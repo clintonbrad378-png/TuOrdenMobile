@@ -182,18 +182,17 @@ export function Modal({
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-4">
+    <div className="fixed inset-0 z-50 flex items-start justify-center sm:items-center sm:p-4 pt-[env(safe-area-inset-top)]">
       <div
         className="absolute inset-0 bg-black/70 backdrop-blur-sm"
         onClick={onClose}
       />
       <div
         className={cn(
-          "relative flex max-h-[92dvh] w-full flex-col rounded-t-2xl border border-white/10 bg-surface-900 shadow-2xl sm:max-h-[85vh] sm:rounded-2xl",
+          "relative flex max-h-[92dvh] w-full flex-col rounded-b-2xl border border-white/10 bg-surface-900 shadow-2xl sm:max-h-[85vh] sm:rounded-2xl",
           width,
         )}
       >
-        <div className="mx-auto mt-2 h-1 w-10 shrink-0 rounded-full bg-white/15 sm:hidden" />
         <div className="flex items-center justify-between border-b border-white/[0.06] px-5 py-4">
           <h2 className="text-sm font-semibold text-zinc-100">{title}</h2>
           <button
@@ -203,7 +202,7 @@ export function Modal({
             <X size={16} />
           </button>
         </div>
-        <div className="flex-1 space-y-4 overflow-y-auto px-5 pt-4 pb-[calc(1rem+env(safe-area-inset-bottom))] sm:pb-4">
+        <div className="flex-1 space-y-4 overflow-y-auto px-5 pt-[calc(1rem+env(safe-area-inset-top))] pb-[calc(1rem+env(safe-area-inset-bottom))] sm:pt-4 sm:pb-4">
           {children}
         </div>
         {footer && (
