@@ -59,11 +59,11 @@ jobs:
           ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
         run: |
           cd src-tauri
-          cargo tauri android build
+          cargo tauri android build --apk
 
-      - name: Upload Android APK/AAB
+      - name: Upload Android APK
         uses: actions/upload-artifact@v4
         with:
           name: tuorden-android
-          path: src-tauri/gen/android/app/build/outputs/apk/release/
-          if-no-matches: ignore
+          path: src-tauri/gen/android/app/build/outputs/apk/**/release/*.apk
+          if-no-files-found: warn
