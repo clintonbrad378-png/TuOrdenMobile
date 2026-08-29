@@ -139,6 +139,91 @@ pub struct CreateSaleInput {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct CreditSale {
+    pub id: i64,
+    pub client_name: String,
+    pub client_phone: Option<String>,
+    pub total: f64,
+    pub paid: f64,
+    pub status: String,
+    pub note: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreditSaleSummary {
+    pub id: i64,
+    pub client_name: String,
+    pub client_phone: Option<String>,
+    pub total: f64,
+    pub paid: f64,
+    pub balance: f64,
+    pub status: String,
+    pub created_at: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreditSaleItemRow {
+    pub id: i64,
+    pub credit_sale_id: i64,
+    pub product_id: Option<i64>,
+    pub product_name: String,
+    pub unit_price: f64,
+    pub unit_cost: f64,
+    pub quantity: i64,
+    pub subtotal: f64,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreditSaleDetail {
+    #[serde(flatten)]
+    pub credit_sale: CreditSale,
+    pub items: Vec<CreditSaleItemRow>,
+    pub payments: Vec<CreditPayment>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreditPayment {
+    pub id: i64,
+    pub credit_sale_id: i64,
+    pub amount: f64,
+    pub payment_method: String,
+    pub note: Option<String>,
+    pub created_at: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreditSaleItemInput {
+    pub product_id: i64,
+    pub quantity: i64,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateCreditSaleInput {
+    pub client_name: String,
+    pub client_phone: Option<String>,
+    pub items: Vec<CreditSaleItemInput>,
+    pub note: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreditPaymentInput {
+    pub credit_sale_id: i64,
+    pub amount: f64,
+    pub payment_method: String,
+    pub note: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DayPoint {
     pub date: String,
     pub total: f64,

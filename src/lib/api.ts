@@ -1,7 +1,12 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
+  CreateCreditSaleInput,
   CreateMaterialInput,
   CreateSaleInput,
+  CreditPaymentInput,
+  CreditSale,
+  CreditSaleDetail,
+  CreditSaleSummary,
   DashboardStats,
   DbInfo,
   LicenseCheck,
@@ -50,6 +55,12 @@ export const api = {
   createSale: (input: CreateSaleInput) => invoke<Sale>("create_sale", { input }),
   listSales: (from: string, to: string) => invoke<SaleSummary[]>("list_sales", { from, to }),
   getSale: (id: number) => invoke<SaleDetail>("get_sale", { id }),
+
+  // Credit Sales
+  createCreditSale: (input: CreateCreditSaleInput) => invoke<CreditSale>("create_credit_sale", { input }),
+  listCreditSales: (status?: string) => invoke<CreditSaleSummary[]>("list_credit_sales", { status }),
+  getCreditSale: (id: number) => invoke<CreditSaleDetail>("get_credit_sale", { id }),
+  addCreditPayment: (input: CreditPaymentInput) => invoke<CreditSale>("add_credit_payment", { input }),
 
   // Stats & reports
   dashboardStats: () => invoke<DashboardStats>("dashboard_stats"),

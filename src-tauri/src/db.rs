@@ -84,6 +84,44 @@ CREATE TABLE IF NOT EXISTS app_config (
 INSERT OR IGNORE INTO app_config (key, value) VALUES ('manager_pin', '1234');
 "#;
 
+const MIGRATION_V4: &str = r#"
+CREATE TABLE IF NOT EXISTS credit_sales (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  client_name TEXT NOT NULL,
+  client_phone TEXT,
+  total REAL NOT NULL,
+  paid REAL NOT NULL DEFAULT 0,
+  status TEXT NOT NULL DEFAULT 'pendiente',
+  note TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+);
+
+CREATE TABLE IF NOT EXISTS credit_sale_items (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  credit_sale_id INTEGER NOT NULL REFERENCES credit_sales(id) ON DELETE CASCADE,
+  product_id INTEGER REFERENCES products(id) ON DELETE SET NULL,
+  product_name TEXT NOT NULL,
+  unit_price REAL NOT NULL,
+  unit_cost REAL NOT NULL,
+  quantity INTEGER NOT NULL,
+  subtotal REAL NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS credit_payments (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  credit_sale_id INTEGER NOT NULL REFERENCES credit_sales(id) ON DELETE CASCADE,
+  amount REAL NOT NULL,
+  payment_method TEXT NOT NULL DEFAULT 'efectivo',
+  note TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_credit_sales_status ON credit_sales(status);
+CREATE INDEX IF NOT EXISTS idx_credit_sales_client ON credit_sales(client_name);
+CREATE INDEX IF NOT EXISTS idx_credit_payments_sale ON credit_payments(credit_sale_id);
+"#;
+
 pub fn init_db(path: &std::path::Path) -> Result<Connection, Box<dyn std::error::Error>> {
     let conn = Connection::open(path)?;
     conn.pragma_update(None, "foreign_keys", "ON")?;
@@ -104,6 +142,10 @@ fn migrate(conn: &Connection) -> Result<(), Box<dyn std::error::Error>> {
     if version < 3 {
         conn.execute_batch(MIGRATION_V3)?;
         conn.pragma_update(None, "user_version", 3)?;
+    }
+    if version < 4 {
+        conn.execute_batch(MIGRATION_V4)?;
+        conn.pragma_update(None, "user_version", 4)?;
     }
     Ok(())
 }

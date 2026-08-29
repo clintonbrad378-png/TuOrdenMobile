@@ -100,6 +100,69 @@ export interface CreateSaleInput {
   note: string | null;
 }
 
+export interface CreditSale {
+  id: number;
+  clientName: string;
+  clientPhone: string | null;
+  total: number;
+  paid: number;
+  status: string;
+  note: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreditSaleSummary {
+  id: number;
+  clientName: string;
+  clientPhone: string | null;
+  total: number;
+  paid: number;
+  balance: number;
+  status: string;
+  createdAt: string;
+}
+
+export interface CreditSaleItemRow {
+  id: number;
+  creditSaleId: number;
+  productId: number | null;
+  productName: string;
+  unitPrice: number;
+  unitCost: number;
+  quantity: number;
+  subtotal: number;
+}
+
+export interface CreditPayment {
+  id: number;
+  creditSaleId: number;
+  amount: number;
+  paymentMethod: string;
+  note: string | null;
+  createdAt: string;
+}
+
+export interface CreditSaleDetail {
+  creditSale: CreditSale;
+  items: CreditSaleItemRow[];
+  payments: CreditPayment[];
+}
+
+export interface CreateCreditSaleInput {
+  clientName: string;
+  clientPhone: string | null;
+  items: { productId: number; quantity: number }[];
+  note: string | null;
+}
+
+export interface CreditPaymentInput {
+  creditSaleId: number;
+  amount: number;
+  paymentMethod: string;
+  note: string | null;
+}
+
 export interface DayPoint {
   date: string;
   total: number;
