@@ -68,7 +68,7 @@ export default function Entradas() {
     }
     setSaving(true);
     try {
-      await api.receiveMaterial(form.materialId, quantity, costPerUnit);
+      await api.receiveMaterial({ materialId: form.materialId, quantity, costPerUnit });
       toast("success", "Entrada registrada y costo actualizado");
       setEditorOpen(false);
       await load();

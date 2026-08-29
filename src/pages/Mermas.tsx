@@ -111,7 +111,7 @@ export default function Mermas() {
     }
     setWasteSaving(true);
     try {
-      await api.wasteMaterial(wasteForm.materialId, quantity, wasteForm.reason);
+      await api.wasteMaterial({ materialId: wasteForm.materialId, quantity, reason: wasteForm.reason });
       toast("success", "Merma registrada");
       setWasteEditorOpen(false);
       await load();
@@ -139,7 +139,7 @@ export default function Mermas() {
     }
     setConsumptionSaving(true);
     try {
-      await api.internalConsumption(consumptionForm.productId, quantity);
+      await api.internalConsumption({ productId: consumptionForm.productId, quantity });
       toast("success", "Consumo interno registrado (receta descontada)");
       setConsumptionEditorOpen(false);
       await load();

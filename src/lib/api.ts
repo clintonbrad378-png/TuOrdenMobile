@@ -28,12 +28,12 @@ export const api = {
   deleteMaterial: (id: number) => invoke<void>("delete_material", { id }),
   adjustStock: (materialId: number, change: number, reason: string) =>
     invoke<Material>("adjust_stock", { materialId, change, reason }),
-  receiveMaterial: (materialId: number, quantity: number, costPerUnit: number) =>
-    invoke<Material>("receive_material", { materialId, quantity, costPerUnit }),
-  wasteMaterial: (materialId: number, quantity: number, reason: string) =>
-    invoke<Material>("waste_material", { materialId, quantity, reason }),
-  internalConsumption: (productId: number, quantity: number) =>
-    invoke<void>("internal_consumption", { productId, quantity }),
+  receiveMaterial: (input: { materialId: number; quantity: number; costPerUnit: number }) =>
+    invoke<Material>("receive_material", { input }),
+  wasteMaterial: (input: { materialId: number; quantity: number; reason: string }) =>
+    invoke<Material>("waste_material", { input }),
+  internalConsumption: (input: { productId: number; quantity: number }) =>
+    invoke<void>("internal_consumption", { input }),
   listMovements: (limit?: number) => invoke<Movement[]>("list_movements", { limit }),
 
   // Products
