@@ -1,0 +1,81 @@
+name: Android CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  build-android:
+    name: Build Android (debug)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          api-level: 34
+          ndk-version: r27c
+          emulator: false
+
+      - name: Configure Cargo for Android
+        run: |
+          mkdir -p src-tauri/.cargo
+          cat > src-tauri/.cargo/config.toml << 'EOF'
+          [target.aarch64-linux-android]
+          linker = "aarch64-linux-android21-clang"
+
+          [target.armv7-linux-androideabi]
+          linker = "armv7a-linux-androideabi21-clang"
+
+          [target.i686-linux-android]
+          linker = "i686-linux-android21-clang"
+
+          [target.x86_64-linux-android]
+          linker = "x86_64-linux-android21-clang"
+          EOF
+
+      - name: Cache Cargo dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src-tauri/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Build Android APK (debug)
+        run: |
+          cd src-tauri
+          cargo tauri android build --target aarch64-linux-android --debug
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tauri-android-debug-apk
+          path: src-tauri/target/*/apk/*.apk
+          retention-days: 7

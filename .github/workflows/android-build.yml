@@ -1,69 +1,112 @@
-name: Build Tauri Android App
+name: Android Build
 
 on:
   push:
     branches: [main, develop]
   pull_request:
-    branches: [main]
+    branches: [main, develop]
   workflow_dispatch:
 
 jobs:
-  build:
+  build-android:
+    name: Build Android APK/AAB
     runs-on: ubuntu-latest
+    timeout-minutes: 60
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Node.js
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
+          cache: 'npm'
 
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Set up Java JDK
-        uses: actions/setup-java@v4
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
         with:
-          distribution: 'temurin'
-          java-version: '21'
+          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
         with:
-          api-level: 33
-          ndk-version: '27'
+          api-level: 34
+          ndk-version: r27c
+          emulator: false
 
-      - name: Accept Android licenses
-        run: yes | sdkmanager --licenses
-
-      - name: Install Rust target for Android (arm64 only)
+      - name: Configure Cargo for Android
         run: |
-          rustup target add aarch64-linux-android
+          mkdir -p src-tauri/.cargo
+          cat > src-tauri/.cargo/config.toml << 'EOF'
+          [target.aarch64-linux-android]
+          linker = "aarch64-linux-android21-clang"
 
-      - name: Install cargo-tauri
-        run: cargo install tauri-cli --version "^2" --locked
+          [target.armv7-linux-androideabi]
+          linker = "armv7a-linux-androideabi21-clang"
 
-      - name: Initialize Tauri Android project
+          [target.i686-linux-android]
+          linker = "i686-linux-android21-clang"
+
+          [target.x86_64-linux-android]
+          linker = "x86_64-linux-android21-clang"
+          EOF
+
+      - name: Cache Cargo dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src-tauri/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Build Android APK (debug)
+        uses: tauri-apps/tauri-action@v0
         env:
-          ANDROID_SDK_ROOT: ${{ env.ANDROID_SDK_ROOT }}
-          ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
-        run: |
-          cd src-tauri
-          cargo tauri android init
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
+          TAURI_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
+        with:
+          tagName: app-v__VERSION__
+          releaseName: 'App v__VERSION__'
+          releaseBody: 'See the assets to download this version and install.'
+          releaseDraft: true
+          prerelease: false
+          args: --target aarch64-linux-android --debug
 
-      - name: Build Tauri Android app (debug)
+      - name: Build Android APK (release)
+        uses: tauri-apps/tauri-action@v0
         env:
-          ANDROID_SDK_ROOT: ${{ env.ANDROID_SDK_ROOT }}
-          ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
-        run: |
-          cd src-tauri
-          cargo tauri android build --debug --apk --target aarch64-linux-android
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
+          TAURI_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
+        with:
+          tagName: app-v__VERSION__
+          releaseName: 'App v__VERSION__'
+          releaseBody: 'See the assets to download this version and install.'
+          releaseDraft: true
+          prerelease: false
+          args: --target aarch64-linux-android
 
-      - name: Upload Android APK
+      - name: Upload APK artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: tuorden-android
-          path: src-tauri/gen/android/app/build/outputs/apk/aarch64/debug/*.apk
-          if-no-files-found: warn
+          name: tauri-android-apk
+          path: src-tauri/target/*/apk/*.apk
+          retention-days: 7
+
+      - name: Upload AAB artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: tauri-android-aab
+          path: src-tauri/target/*/bundle/*.aab
+          retention-days: 7

@@ -8,7 +8,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { CalendarDays, Coins, FileDown, FileText, ShoppingBag, TrendingUp, Wallet } from "lucide-react";
+import { CalendarDays, Coins, CreditCard, FileDown, FileText, ShoppingBag, TrendingUp, Wallet } from "lucide-react";
 import { save } from "@tauri-apps/plugin-dialog";
 import { api } from "../lib/api";
 import type { ReportData } from "../lib/types";
@@ -41,9 +41,9 @@ const ChartTooltip = ({ active, payload, label }: any) => {
 type Preset = "hoy" | "ayer" | "ult7" | "mes" | "mesPasado" | "custom";
 
 export default function Reportes() {
-  const [preset, setPreset] = useState<Preset>("hoy");
-  const [from, setFrom] = useState(isoToday());
-  const [to, setTo] = useState(isoToday());
+  const [preset, setPreset] = useState<Preset>("mes");
+  const [from, setFrom] = useState(monthBounds(0)[0]);
+  const [to, setTo] = useState(monthBounds(0)[1]);
   const [report, setReport] = useState<ReportData | null>(null);
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
@@ -266,6 +266,28 @@ export default function Reportes() {
                     : "Según costo de recetas"
                 }
                 icon={<Coins size={18} />}
+              />
+              <StatCard
+                label="Gastos del negocio"
+                value={fmtMoney(report.totalBusinessExpenses)}
+                hint="Alquiler, nómina, servicios, etc."
+                icon={<CreditCard size={18} />}
+              />
+              <StatCard
+                label="Mermas (pérdida capital)"
+                value={fmtMoney(report.totalMermaExpenses)}
+                hint="Desperdicios, vencidos, roturas"
+                icon={<CreditCard size={18} />}
+              />
+              <StatCard
+                label="Ganancia neta"
+                value={fmtMoney(report.totalNetProfit)}
+                hint={
+                  report.totalSales > 0
+                    ? `Gastos totales ${fmtMoney(report.totalBusinessExpenses + report.totalMermaExpenses)}`
+                    : "Ganancia bruta - gastos totales"
+                }
+                icon={<CreditCard size={18} />}
               />
               <StatCard
                 label="Ticket promedio"

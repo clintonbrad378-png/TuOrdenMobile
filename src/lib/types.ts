@@ -190,6 +190,9 @@ export interface DashboardStats {
   todayItems: number;
   todayInvestment: number;
   todayProfit: number;
+  todayBusinessExpenses: number;
+  todayMermaExpenses: number;
+  todayNetProfit: number;
   weekTotal: number;
   weekProfit: number;
   monthTotal: number;
@@ -212,6 +215,9 @@ export interface ReportData {
   totalSales: number;
   totalInvestment: number;
   totalProfit: number;
+  totalBusinessExpenses: number;
+  totalMermaExpenses: number;
+  totalNetProfit: number;
   countSales: number;
   avgTicket: number;
   totalItems: number;
@@ -248,4 +254,55 @@ export interface LicenseCheck {
   publicKey: string | null;
   expiresAt: string | null;
   needsActivation: boolean;
+}
+
+export type ExpenseCategory =
+  | "alquiler"
+  | "servicios"
+  | "nomina"
+  | "marketing"
+  | "impuestos"
+  | "mantenimiento"
+  | "merma"
+  | "otro";
+
+export interface Expense {
+  id: number;
+  name: string;
+  amount: number;
+  category: ExpenseCategory;
+  description: string | null;
+  referenceId: number | null;
+  referenceType: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateExpenseInput {
+  name: string;
+  amount: number;
+  category: ExpenseCategory;
+  description?: string;
+}
+
+export interface UpdateExpenseInput {
+  name: string;
+  amount: number;
+  category: ExpenseCategory;
+  description?: string;
+}
+
+export interface NetProfitData {
+  grossProfit: number;
+  businessExpenses: number;
+  mermaExpenses: number;
+  totalExpenses: number;
+  netProfit: number;
+}
+
+export interface ListExpensesParams {
+  limit?: number;
+  category?: ExpenseCategory;
+  from?: string;
+  to?: string;
 }

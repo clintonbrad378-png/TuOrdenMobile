@@ -2,6 +2,7 @@ import { NavLink } from "react-router-dom";
 import {
   BarChart3,
   Boxes,
+  CreditCard,
   LayoutDashboard,
   Settings,
   ShoppingCart,
@@ -19,6 +20,7 @@ const NAV = [
   { to: "/materiales", label: "Materiales", icon: Boxes, end: false },
   { to: "/entradas", label: "Entradas", icon: Truck, end: false },
   { to: "/mermas", label: "Mermas", icon: Trash2, end: false },
+  { to: "/gastos", label: "Gastos", icon: CreditCard, end: false },
   { to: "/reportes", label: "Reportes", icon: BarChart3, end: false },
   { to: "/configuracion", label: "Ajustes", icon: Settings, end: false },
 ];

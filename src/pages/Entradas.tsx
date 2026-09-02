@@ -4,6 +4,11 @@ import { api } from "../lib/api";
 import type { Material } from "../lib/types";
 import { errMsg, fmtMoney, fmtQty } from "../lib/format";
 import {
+  parseLocaleNumber,
+  weightedAverage,
+  getUnitInputConfig,
+} from "../lib/numbers";
+import {
   Badge,
   Button,
   Card,
@@ -56,14 +61,22 @@ export default function Entradas() {
       toast("error", "Selecciona un material");
       return;
     }
-    const quantity = Number(form.quantity);
-    const costPerUnit = Number(form.costPerUnit);
-    if (!(quantity > 0)) {
+    const quantity = parseLocaleNumber(form.quantity);
+    const costPerUnit = parseLocaleNumber(form.costPerUnit);
+    if (Number.isNaN(quantity)) {
+      toast("error", "Ingresa una cantidad válida");
+      return;
+    }
+    if (Number.isNaN(costPerUnit)) {
+      toast("error", "Ingresa un costo válido");
+      return;
+    }
+    if (!getUnitInputConfig(selectedMaterial?.unit ?? "").validate(quantity)) {
       toast("error", "Ingresa una cantidad mayor a cero");
       return;
     }
-    if (!(costPerUnit >= 0)) {
-      toast("error", "Ingresa un costo válido");
+    if (costPerUnit < 0) {
+      toast("error", "El costo no puede ser negativo");
       return;
     }
     setSaving(true);
@@ -190,18 +203,18 @@ export default function Entradas() {
           <Field label="Cantidad a recibir">
             <Input
               type="number"
-              min="0"
-              step="any"
+              min={getUnitInputConfig(selectedMaterial?.unit ?? "").min}
+              step={getUnitInputConfig(selectedMaterial?.unit ?? "").step}
               value={form.quantity}
               onChange={(e) => setForm({ ...form, quantity: e.target.value })}
-              placeholder="0"
+              placeholder={getUnitInputConfig(selectedMaterial?.unit ?? "").placeholder}
             />
           </Field>
           <Field label="Nuevo costo por unidad" hint="Se calculará el promedio ponderado con el stock actual">
             <Input
               type="number"
               min="0"
-              step="any"
+              step="0.01"
               value={form.costPerUnit}
               onChange={(e) => setForm({ ...form, costPerUnit: e.target.value })}
               placeholder="0.00"
@@ -218,9 +231,12 @@ export default function Entradas() {
                 Nuevo costo estimado:{" "}
                 <span className="text-emerald-400 font-medium">
                   {fmtMoney(
-                    ((selectedMaterial.stock * selectedMaterial.costPerUnit) +
-                      Number(form.quantity) * Number(form.costPerUnit)) /
-                      (selectedMaterial.stock + Number(form.quantity))
+                    weightedAverage(
+                      selectedMaterial.stock,
+                      selectedMaterial.costPerUnit,
+                      parseLocaleNumber(form.quantity),
+                      parseLocaleNumber(form.costPerUnit)
+                    )
                   )}/{selectedMaterial.unit}
                 </span>
               </p>

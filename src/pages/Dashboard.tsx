@@ -14,6 +14,7 @@ import {
   Banknote,
   CheckCircle2,
   Coins,
+  CreditCard,
   DollarSign,
   Receipt,
   RefreshCw,
@@ -106,6 +107,16 @@ export default function Dashboard() {
                 : "Según costo de recetas"
             }
             icon={<Coins size={18} />}
+          />
+          <StatCard
+            label="Ganancia neta mes"
+            value={fmtMoney(stats.todayNetProfit)}
+            hint={
+              stats.monthTotal > 0
+                ? `Gastos mes ${fmtMoney(stats.todayBusinessExpenses + stats.todayMermaExpenses)} (negocio: ${fmtMoney(stats.todayBusinessExpenses)}, mermas: ${fmtMoney(stats.todayMermaExpenses)})`
+                : "Ganancia bruta mes - gastos mes"
+            }
+            icon={<CreditCard size={18} />}
           />
           <StatCard
             label="Ticket promedio"

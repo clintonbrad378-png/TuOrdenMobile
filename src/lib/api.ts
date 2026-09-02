@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
   CreateCreditSaleInput,
+  CreateExpenseInput,
   CreateMaterialInput,
   CreateSaleInput,
   CreditPaymentInput,
@@ -9,16 +10,20 @@ import type {
   CreditSaleSummary,
   DashboardStats,
   DbInfo,
+  Expense,
   LicenseCheck,
   LicenseKey,
+  ListExpensesParams,
   Material,
   Movement,
+  NetProfitData,
   Product,
   ProductInput,
   ReportData,
   Sale,
   SaleDetail,
   SaleSummary,
+  UpdateExpenseInput,
   UpdateMaterialInput,
   LicenseVerify,
 } from "./types";
@@ -81,6 +86,14 @@ export const api = {
   licenseVerify: (signature: string, message: string) =>
     invoke<LicenseVerify>("license_verify", { signatureB64: signature, message }),
   licenseCheck: () => invoke<LicenseCheck>("license_check"),
+
+  // Expenses
+  listExpenses: (params?: ListExpensesParams) => invoke<Expense[]>("list_expenses", { params }),
+  createExpense: (input: CreateExpenseInput) => invoke<Expense>("create_expense", { input }),
+  updateExpense: (id: number, input: UpdateExpenseInput) =>
+    invoke<Expense>("update_expense", { id, input }),
+  deleteExpense: (id: number) => invoke<void>("delete_expense", { id }),
+  getNetProfit: (from: string, to: string) => invoke<NetProfitData>("get_net_profit", { from, to }),
 
   // Auth - manager PIN
   managerPinExists: () => invoke<boolean>("manager_pin_exists"),

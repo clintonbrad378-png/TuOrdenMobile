@@ -14,6 +14,34 @@ fn valid_date(s: &str) -> bool {
         })
 }
 
+fn get_expenses_for_period(
+    conn: &rusqlite::Connection,
+    date_condition: &str,
+    params: &[&dyn rusqlite::ToSql],
+) -> Result<(f64, f64), String> {
+    let business_expenses: f64 = conn
+        .query_row(
+            &format!(
+                "SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE category != 'merma' AND {date_condition}"
+            ),
+            params,
+            |r| r.get(0),
+        )
+        .map_err(|e| e.to_string())?;
+
+    let merma_expenses: f64 = conn
+        .query_row(
+            &format!(
+                "SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE category = 'merma' AND {date_condition}"
+            ),
+            params,
+            |r| r.get(0),
+        )
+        .map_err(|e| e.to_string())?;
+
+    Ok((business_expenses, merma_expenses))
+}
+
 #[tauri::command]
 pub async fn dashboard_stats(state: State<'_, AppState>) -> Result<DashboardStats, String> {
     let conn = state.db.lock().map_err(|_| "Error interno")?;
@@ -163,6 +191,11 @@ pub async fn dashboard_stats(state: State<'_, AppState>) -> Result<DashboardStat
         }
     }
 
+    let month_start = "date('now','localtime','start of month')";
+    let (month_business_expenses, month_merma_expenses) =
+        get_expenses_for_period(&conn, &format!("date(created_at) >= {month_start}"), &[])?;
+    let month_net_profit = month_profit - month_business_expenses - month_merma_expenses;
+
     let avg_ticket = if today_count > 0 {
         today_total / today_count as f64
     } else {
@@ -175,6 +208,9 @@ pub async fn dashboard_stats(state: State<'_, AppState>) -> Result<DashboardStat
         today_items,
         today_investment,
         today_profit,
+        today_business_expenses: month_business_expenses,
+        today_merma_expenses: month_merma_expenses,
+        today_net_profit: month_net_profit,
         week_total,
         week_profit,
         month_total,
@@ -311,12 +347,19 @@ pub async fn report_data(
         0.0
     };
 
+    let (total_business_expenses, total_merma_expenses) =
+        get_expenses_for_period(&conn, "date(created_at) BETWEEN ?1 AND ?2", &[&from, &to])?;
+    let total_net_profit = total_profit - total_business_expenses - total_merma_expenses;
+
     Ok(ReportData {
         from,
         to,
         total_sales,
         total_investment,
         total_profit,
+        total_business_expenses,
+        total_merma_expenses,
+        total_net_profit,
         count_sales,
         avg_ticket,
         total_items,

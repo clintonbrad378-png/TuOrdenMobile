@@ -273,7 +273,9 @@ pub async fn receive_material(
 
     let new_stock = current_stock + input.quantity;
     let new_cost = if new_stock > 0.0 {
-        ((current_stock * current_cost) + (input.quantity * input.cost_per_unit)) / new_stock
+        const PRECISION: f64 = 1000.0;
+        let total_value = current_stock * current_cost + input.quantity * input.cost_per_unit;
+        (total_value * PRECISION / new_stock).round() / PRECISION
     } else {
         input.cost_per_unit
     };
@@ -311,11 +313,11 @@ pub async fn waste_material(
     }
 
     let conn = state.db.lock().map_err(|_| "Error interno")?;
-    let stock: f64 = conn
+    let (stock, current_cost, material_name): (f64, f64, String) = conn
         .query_row(
-            "SELECT stock FROM materials WHERE id = ?1",
+            "SELECT stock, cost_per_unit, name FROM materials WHERE id = ?1",
             params![input.material_id],
-            |r| r.get(0),
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
         )
         .optional()
         .map_err(|e| e.to_string())?
@@ -337,6 +339,16 @@ pub async fn waste_material(
     conn.execute(
         "INSERT INTO stock_movements (material_id, change, reason) VALUES (?1, ?2, 'merma')",
         params![input.material_id, -input.quantity],
+    )
+    .map_err(|e| e.to_string())?;
+
+    let merma_amount = input.quantity * current_cost;
+    let merma_name = format!("Merma: {}", material_name);
+    let merma_description = format!("Motivo: {}", input.reason);
+
+    conn.execute(
+        "INSERT INTO expenses (name, amount, category, description) VALUES (?1, ?2, 'merma', ?3)",
+        params![merma_name, merma_amount, merma_description],
     )
     .map_err(|e| e.to_string())?;
 

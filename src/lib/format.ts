@@ -9,7 +9,11 @@ export const fmtMoney = (n: number) =>
 
 export const fmtQty = (n: number) => {
   if (!Number.isFinite(n)) return "0";
-  return Number.isInteger(n) ? String(n) : String(Math.round(n * 1000) / 1000);
+  const rounded = Math.round(n * 1000) / 1000;
+  return Number.isInteger(rounded) ? String(rounded) : rounded.toLocaleString('es-ES', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 3,
+  });
 };
 
 export const fmtDateTime = (s: string) => {

@@ -122,6 +122,23 @@ CREATE INDEX IF NOT EXISTS idx_credit_sales_client ON credit_sales(client_name);
 CREATE INDEX IF NOT EXISTS idx_credit_payments_sale ON credit_payments(credit_sale_id);
 "#;
 
+const MIGRATION_V5: &str = r#"
+CREATE TABLE IF NOT EXISTS expenses (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  amount REAL NOT NULL,
+  category TEXT NOT NULL,
+  description TEXT,
+  reference_id INTEGER,
+  reference_type TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_expenses_created ON expenses(created_at);
+CREATE INDEX IF NOT EXISTS idx_expenses_category ON expenses(category);
+"#;
+
 pub fn init_db(path: &std::path::Path) -> Result<Connection, Box<dyn std::error::Error>> {
     let conn = Connection::open(path)?;
     conn.pragma_update(None, "foreign_keys", "ON")?;
@@ -147,11 +164,22 @@ fn migrate(conn: &Connection) -> Result<(), Box<dyn std::error::Error>> {
         conn.execute_batch(MIGRATION_V4)?;
         conn.pragma_update(None, "user_version", 4)?;
     }
+    if version < 5 {
+        conn.execute_batch(MIGRATION_V5)?;
+        conn.pragma_update(None, "user_version", 5)?;
+    }
     Ok(())
 }
 
 pub fn fmt_qty(n: f64) -> String {
-    let s = format!("{:.3}", n);
-    let s = s.trim_end_matches('0').trim_end_matches('.');
-    s.to_string()
+    if !n.is_finite() {
+        return "0".to_string();
+    }
+    let rounded = (n * 1000.0).round() / 1000.0;
+    if rounded.fract() == 0.0 {
+        format!("{:.0}", rounded)
+    } else {
+        let s = format!("{:.3}", rounded);
+        s.trim_end_matches('0').trim_end_matches('.').to_string()
+    }
 }

@@ -8,6 +8,7 @@ import RoleGate from "./components/RoleGate";
 import { ToastProvider } from "./components/ui";
 import { AuthProvider, useAuth } from "./lib/auth";
 import Configuracion from "./pages/Configuracion";
+import Gastos from "./pages/Gastos";
 import Licencia from "./pages/Licencia";
 import Dashboard from "./pages/Dashboard";
 import Materiales from "./pages/Materiales";
@@ -54,6 +55,7 @@ function Shell() {
               <Route path="/materiales" element={<Materiales />} />
               <Route path="/entradas" element={<Entradas />} />
               <Route path="/mermas" element={<Mermas />} />
+              <Route path="/gastos" element={<Gastos />} />
               <Route path="/reportes" element={<Reportes />} />
               <Route path="/configuracion" element={<Configuracion />} />
               <Route path="/licencia" element={<Licencia />} />

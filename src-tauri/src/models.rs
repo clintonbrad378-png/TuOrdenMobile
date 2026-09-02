@@ -257,6 +257,9 @@ pub struct DashboardStats {
     pub today_items: i64,
     pub today_investment: f64,
     pub today_profit: f64,
+    pub today_business_expenses: f64,
+    pub today_merma_expenses: f64,
+    pub today_net_profit: f64,
     pub week_total: f64,
     pub week_profit: f64,
     pub month_total: f64,
@@ -283,6 +286,9 @@ pub struct ReportData {
     pub total_sales: f64,
     pub total_investment: f64,
     pub total_profit: f64,
+    pub total_business_expenses: f64,
+    pub total_merma_expenses: f64,
+    pub total_net_profit: f64,
     pub count_sales: i64,
     pub avg_ticket: f64,
     pub total_items: i64,
@@ -299,4 +305,46 @@ pub struct DbInfo {
     pub materials: i64,
     pub products: i64,
     pub sales: i64,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Expense {
+    pub id: i64,
+    pub name: String,
+    pub amount: f64,
+    pub category: String,
+    pub description: Option<String>,
+    pub reference_id: Option<i64>,
+    pub reference_type: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateExpenseInput {
+    pub name: String,
+    pub amount: f64,
+    pub category: String,
+    pub description: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateExpenseInput {
+    pub name: String,
+    pub amount: f64,
+    pub category: String,
+    pub description: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NetProfitData {
+    pub gross_profit: f64,
+    pub business_expenses: f64,
+    pub merma_expenses: f64,
+    pub total_expenses: f64,
+    pub net_profit: f64,
 }
