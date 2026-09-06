@@ -18,6 +18,7 @@ import {
   cn,
   useToast,
 } from "../components/ui";
+import ProductPicker from "../components/ProductPicker";
 
 type VentaTab = "venta" | "credito";
 
@@ -47,6 +48,7 @@ export default function Venta() {
   const [creditSaving, setCreditSaving] = useState(false);
   const [creditDetail, setCreditDetail] = useState<CreditSaleDetail | null>(null);
   const [paymentForm, setPaymentForm] = useState<{ creditSaleId: number; amount: number; paymentMethod: string; note: string } | null>(null);
+  const [productPickerOpen, setProductPickerOpen] = useState(false);
 
   const toast = useToast();
 
@@ -711,7 +713,7 @@ export default function Venta() {
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <span className="text-xs font-medium tracking-wide text-zinc-400">Productos</span>
-              <Button size="sm" variant="outline" onClick={() => setCreditEditorOpen(true)}>
+              <Button size="sm" variant="outline" onClick={() => setProductPickerOpen(true)}>
                 <Plus size={13} />
                 Agregar producto
               </Button>
@@ -952,6 +954,25 @@ export default function Venta() {
           </div>
         )}
       </Modal>
+
+      {/* Product Picker Modal */}
+      <ProductPicker
+        open={productPickerOpen}
+        onClose={() => setProductPickerOpen(false)}
+        onSelect={(product) => {
+          setCreditForm((f) => {
+            const existingIndex = f.items.findIndex((item) => item.productId === product.id);
+            if (existingIndex >= 0) {
+              const next = [...f.items];
+              next[existingIndex] = { ...next[existingIndex], quantity: next[existingIndex].quantity + 1 };
+              return { ...f, items: next };
+            }
+            return { ...f, items: [...f.items, { productId: product.id, quantity: 1 }] };
+          });
+        }}
+        products={products ?? []}
+        title="Agregar producto a la venta a crédito"
+      />
     </div>
   );
 }
