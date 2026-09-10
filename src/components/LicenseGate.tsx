@@ -10,6 +10,14 @@ export default function LicenseGate({ children }: { children: React.ReactNode })
   const [check, setCheck] = useState<LicenseCheck | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
+  const [showActivate, setShowActivate] = useState(false);
+  const [activateText, setActivateText] = useState("");
+  const [activating, setActivating] = useState(false);
+  // Se congela al montar: si llevara la hora actual, el QR cambiaría en cada render
+  // (ej. al pulsar botones o escribir en el campo de activación).
+  const [fallbackQr] = useState(
+    () => `TUORDEN-SIN-LICENCIA|SOLICITAR-ACTIVACION|${new Date().toISOString()}`,
+  );
 
   const doCheck = useCallback(async () => {
     setChecking(true);
@@ -29,6 +37,23 @@ export default function LicenseGate({ children }: { children: React.ReactNode })
     doCheck();
   }, [doCheck]);
 
+  const handleActivate = async () => {
+    if (!activateText.trim()) {
+      setError("Pega el código de licencia que te dio el proveedor");
+      return;
+    }
+    setActivating(true);
+    try {
+      await api.licenseImport(activateText);
+      setActivateText("");
+      setShowActivate(false);
+      await doCheck();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : typeof e === "string" ? e : JSON.stringify(e));
+    } finally {
+      setActivating(false);
+    }
+  };
   const handleGenerateDemo = async () => {
     setGenerating(true);
     try {
@@ -68,7 +93,7 @@ export default function LicenseGate({ children }: { children: React.ReactNode })
     const exp = expiresAt ? new Date(Number(expiresAt) * 1000).toLocaleDateString() : "sin vencimiento";
     qrValue = `TUORDEN|PK:${publicKey}|EXP:${exp}|ACTIVAR`;
   } else {
-    qrValue = `TUORDEN-SIN-LICENCIA|SOLICITAR-ACTIVACION|${new Date().toISOString()}`;
+    qrValue = fallbackQr;
   }
 
   const isExpired = message.toLowerCase().includes("expir");
@@ -136,8 +161,25 @@ export default function LicenseGate({ children }: { children: React.ReactNode })
                 <RefreshCw size={16} />
                 Verificar de nuevo
               </Button>
-              <Button variant="outline" onClick={handleGenerateDemo} loading={generating}>
+              <Button variant="outline" onClick={() => setShowActivate((v) => !v)}>
                 <KeyRound size={16} />
+                Tengo un código de activación
+              </Button>
+              {showActivate && (
+                <div className="grid gap-2 rounded-xl border border-white/[0.06] bg-surface-800 p-3">
+                  <textarea
+                    value={activateText}
+                    onChange={(e) => setActivateText(e.target.value)}
+                    placeholder="Pega aquí la licencia del proveedor…"
+                    rows={4}
+                    className="w-full resize-y rounded-lg border border-white/10 bg-surface-900 px-3 py-2 font-mono text-xs break-all text-zinc-100 placeholder:font-sans placeholder:text-sm placeholder:text-zinc-600 outline-none focus:border-accent-500/50"
+                  />
+                  <Button variant="primary" onClick={handleActivate} loading={activating}>
+                    {activating ? "Activando..." : "Activar licencia"}
+                  </Button>
+                </div>
+              )}
+              <Button variant="ghost" onClick={handleGenerateDemo} loading={generating}>
                 {generating ? "Generando..." : "Generar licencia demo (7 días)"}
               </Button>
               {error && !check && (

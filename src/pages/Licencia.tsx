@@ -20,6 +20,8 @@ export default function Licencia() {
   const [msgInput, setMsgInput] = useState<string>("");
   const [loadingGenerate, setLoadingGenerate] = useState(false);
   const [loadingVerify, setLoadingVerify] = useState(false);
+  const [activateText, setActivateText] = useState("");
+  const [loadingActivate, setLoadingActivate] = useState(false);
   const toast = useToast();
 
   const load = useCallback(async () => {
@@ -48,6 +50,23 @@ export default function Licencia() {
     }
   };
 
+  const handleActivate = async () => {
+    if (!activateText.trim()) {
+      toast("error", "Pega el código de licencia del proveedor");
+      return;
+    }
+    setLoadingActivate(true);
+    try {
+      const result = await api.licenseImport(activateText);
+      setLicense(result);
+      setActivateText("");
+      toast("success", "Licencia activada correctamente");
+    } catch (e) {
+      toast("error", errMsg(e));
+    } finally {
+      setLoadingActivate(false);
+    }
+  };
   const handleSign = async () => {
     if (!msgInput.trim()) {
       toast("error", "Escribe un mensaje para firmar");
@@ -134,6 +153,28 @@ export default function Licencia() {
               </div>
             </div>
           )}
+        </Card>
+
+        {/* Activate License Section */}
+        <Card className="p-6 mb-8">
+          <h2 className="flex items-center gap-2 text-lg font-medium text-zinc-200 mb-4">
+            <Settings size={16} className="text-accent-400" /> Activar Licencia
+          </h2>
+          <p className="mb-4 text-sm text-zinc-500">
+            Pega el código que te entregó el proveedor para activar tu licencia.
+          </p>
+          <div className="grid gap-4">
+            <textarea
+              value={activateText}
+              onChange={(e) => setActivateText(e.target.value)}
+              placeholder="Pega aquí la licencia del proveedor…"
+              rows={4}
+              className="w-full resize-y rounded-lg border border-white/10 bg-surface-800 px-3 py-2 font-mono text-xs break-all text-zinc-100 placeholder:font-sans placeholder:text-sm placeholder:text-zinc-600 outline-none focus:border-accent-500/50"
+            />
+            <Button variant="primary" onClick={handleActivate} loading={loadingActivate}>
+              {loadingActivate ? "Activando..." : "Activar licencia"}
+            </Button>
+          </div>
         </Card>
 
         {/* Verify License Section */}

@@ -34,7 +34,6 @@ const VENTA_ONLY = [
 export default function BottomNav() {
   const { isDependiente } = useAuth();
   const nav = isDependiente ? VENTA_ONLY : NAV;
-  const cols = isDependiente ? "grid-cols-1" : "grid-cols-9";
 
   // En modo dependiente solo mostrar venta centrado + banner
   if (isDependiente) {
@@ -67,7 +66,7 @@ export default function BottomNav() {
 
   return (
     <nav className="pb-safe fixed inset-x-0 bottom-0 z-40 border-t border-white/[0.08] bg-surface-900/95 backdrop-blur lg:hidden">
-      <div className={`grid h-16 ${cols}`}>
+      <div className="scrollbar-hide flex h-[76px] touch-pan-x items-stretch gap-1 overflow-x-auto px-2">
         {nav.map(({ to, label, icon: Icon, end }) => (
           <NavLink
             key={to}
@@ -75,7 +74,7 @@ export default function BottomNav() {
             end={end}
             className={({ isActive }) =>
               cn(
-                "relative flex touch-none flex-col items-center justify-center gap-1 transition-colors active:bg-white/[0.06]",
+                "relative flex min-w-[78px] flex-1 touch-manipulation flex-col items-center justify-center gap-1.5 rounded-xl transition-colors active:bg-white/[0.06]",
                 isActive ? "text-accent-400" : "text-zinc-500",
               )
             }
@@ -83,10 +82,10 @@ export default function BottomNav() {
             {({ isActive }) => (
               <>
                 {isActive && (
-                  <span className="absolute top-0 h-0.5 w-8 rounded-full bg-accent-400" />
+                  <span className="absolute top-1 h-1 w-10 rounded-full bg-accent-400" />
                 )}
-                <Icon size={20} strokeWidth={isActive ? 2.2 : 1.8} />
-                <span className="text-[10px] leading-none font-medium">{label}</span>
+                <Icon size={26} strokeWidth={isActive ? 2.2 : 1.8} />
+                <span className="text-[11px] leading-none font-medium">{label}</span>
               </>
             )}
           </NavLink>

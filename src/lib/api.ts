@@ -84,6 +84,7 @@ export const api = {
   dbInfo: () => invoke<DbInfo>("db_info"),
   // Licensing
   licenseGenerate: (expiresDays?: number) => invoke<LicenseKey>("license_generate", { expiresDays }),
+  licenseImport: (text: string) => invoke<LicenseKey>("license_import", { text }),
   licenseStatus: () => invoke<LicenseKey>("license_status"),
   licenseSign: (message: string) => invoke<string>("license_sign", { message }),
   licenseVerify: (signature: string, message: string) =>

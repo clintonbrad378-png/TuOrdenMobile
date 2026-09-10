@@ -67,6 +67,13 @@
   padding-bottom: env(safe-area-inset-bottom);
 }
 
+@utility scrollbar-hide {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
 @utility pt-safe {
   padding-top: env(safe-area-inset-top);
 }

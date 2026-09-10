@@ -104,12 +104,90 @@ pub async fn license_status(state: State<'_, AppState>) -> Result<LicenseKey, St
     })
 }
 
+#[derive(Serialize, Deserialize)]
+struct LicenseImport {
+    public_key: String,
+    secret_key: Option<String>,
+    expires_at: Option<String>,
+    created_at: Option<u64>,
+}
+
+#[tauri::command]
+pub async fn license_import(
+    state: State<'_, AppState>,
+    text: String,
+) -> Result<LicenseKey, String> {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return Err("Pega el texto de la licencia".into());
+    }
+    // Acepta JSON directo o base64 del JSON (una sola línea, fácil de copiar).
+    let json = if trimmed.starts_with('{') {
+        trimmed.to_string()
+    } else {
+        let raw = BASE64_STANDARD
+            .decode(trimmed)
+            .map_err(|_| "Código de licencia inválido".to_string())?;
+        String::from_utf8(raw).map_err(|_| "Código de licencia inválido".to_string())?
+    };
+    let imp: LicenseImport =
+        serde_json::from_str(&json).map_err(|_| "Código de licencia inválido".to_string())?;
+
+    // Validar clave pública (32 bytes ed25519).
+    let pk_raw = BASE64_STANDARD
+        .decode(imp.public_key.trim())
+        .map_err(|_| "Licencia inválida: clave pública incorrecta".to_string())?;
+    let pk_bytes: [u8; 32] = pk_raw
+        .try_into()
+        .map_err(|_| "Licencia inválida: clave pública incorrecta".to_string())?;
+    VerifyingKey::from_bytes(&pk_bytes)
+        .map_err(|_| "Licencia inválida: clave pública incorrecta".to_string())?;
+
+    let secret_key = imp.secret_key.unwrap_or_default();
+    if !secret_key.trim().is_empty() {
+        let sk_raw = BASE64_STANDARD
+            .decode(secret_key.trim())
+            .map_err(|_| "Licencia inválida: clave secreta incorrecta".to_string())?;
+        if sk_raw.len() != 32 {
+            return Err("Licencia inválida: clave secreta incorrecta".into());
+        }
+    }
+
+    let created_at = imp.created_at.unwrap_or(now_secs()?);
+    if let Some(exp) = &imp.expires_at {
+        let exp_u64: u64 = exp
+            .parse()
+            .map_err(|_| "Licencia inválida: vencimiento incorrecto".to_string())?;
+        if now_secs()? > exp_u64 {
+            return Err("Esta licencia ya está vencida".into());
+        }
+    }
+
+    let file = LicenseFile {
+        public_key: imp.public_key.trim().to_string(),
+        secret_key: secret_key.trim().to_string(),
+        expires_at: imp.expires_at,
+        created_at,
+    };
+    let out = serde_json::to_string_pretty(&file).map_err(|e| e.to_string())?;
+    let path = license_path(&state)?;
+    std::fs::write(&path, out).map_err(|e| e.to_string())?;
+
+    Ok(LicenseKey {
+        public_key: file.public_key,
+        expires_at: file.expires_at,
+    })
+}
+
 #[tauri::command]
 pub async fn license_sign(state: State<'_, AppState>, message: String) -> Result<String, String> {
     let file = read_license_file(&state)?;
 
+    if file.secret_key.trim().is_empty() {
+        return Err("Esta licencia es solo de activación y no permite firmar".into());
+    }
     let raw = BASE64_STANDARD
-        .decode(&file.secret_key)
+        .decode(file.secret_key.trim())
         .map_err(|e| format!("Clave inválida: {e}"))?;
     let seed: [u8; 32] = raw
         .try_into()

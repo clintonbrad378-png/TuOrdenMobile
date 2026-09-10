@@ -65,6 +65,7 @@ pub fn run() {
             commands::expenses::delete_expense,
             commands::expenses::get_net_profit,
             licensing::license_generate,
+            licensing::license_import,
             licensing::license_status,
             licensing::license_sign,
             licensing::license_verify,
