@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>TuOrden · Panel del día</title>
+<style>
+  :root { color-scheme: dark; --bg:#09090b; --card:#131316; --line:rgba(255,255,255,.08); --txt:#f4f4f5; --mut:#a1a1aa; --acc:#34d399; --warn:#fbbf24; --bad:#f87171; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--txt); font:14px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; }
+  .wrap { max-width:1024px; margin:0 auto; padding:20px 16px 48px; }
+  h1 { font-size:22px; margin:0; letter-spacing:-.02em; }
+  .sub { color:var(--mut); font-size:13px; margin-top:2px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:16px; padding:18px; margin-top:14px; }
+  .grid { display:grid; gap:10px; grid-template-columns:repeat(2,1fr); }
+  @media(min-width:720px){ .grid{ grid-template-columns:repeat(4,1fr);} }
+  .kpi { background:rgba(255,255,255,.03); border:1px solid var(--line); border-radius:12px; padding:12px; }
+  .kpi small { color:var(--mut); text-transform:uppercase; font-size:10px; letter-spacing:.08em; }
+  .kpi b { display:block; font-size:20px; margin-top:4px; font-variant-numeric:tabular-nums; }
+  .kpi span { color:var(--mut); font-size:11px; }
+  input,select { width:100%; background:#1c1c1f; color:var(--txt); border:1px solid var(--line); border-radius:10px; padding:10px 12px; font-size:14px; outline:none; }
+  input:focus { border-color:rgba(52,211,153,.5); }
+  label { display:block; font-size:12px; color:var(--mut); margin:10px 0 4px; }
+  button { background:var(--acc); color:#052e22; font-weight:600; border:0; border-radius:10px; padding:10px 16px; font-size:14px; cursor:pointer; }
+  button.ghost { background:rgba(255,255,255,.06); color:var(--txt); }
+  button:disabled { opacity:.5; cursor:default; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th,td { text-align:left; padding:8px 6px; border-bottom:1px solid var(--line); }
+  th { color:var(--mut); font-weight:500; font-size:11px; text-transform:uppercase; letter-spacing:.06em; }
+  td.num, th.num { text-align:right; font-variant-numeric:tabular-nums; }
+  .badge { display:inline-block; font-size:11px; padding:2px 8px; border-radius:999px; border:1px solid var(--line); }
+  .ok { color:var(--acc); border-color:rgba(52,211,153,.3); background:rgba(52,211,153,.08); }
+  .bajo { color:var(--warn); border-color:rgba(251,191,36,.3); background:rgba(251,191,36,.08); }
+  .agotado { color:var(--bad); border-color:rgba(248,113,113,.3); background:rgba(248,113,113,.08); }
+  .row { display:flex; gap:8px; flex-wrap:wrap; margin-top:12px; align-items:center; }
+  .err { color:var(--bad); font-size:13px; margin-top:8px; }
+  .top { display:flex; justify-content:space-between; align-items:flex-end; gap:12px; flex-wrap:wrap; }
+  .mut { color:var(--mut); font-size:12px; }
+  .bar { height:6px; border-radius:99px; background:rgba(255,255,255,.06); margin-top:6px; overflow:hidden; }
+  .bar i { display:block; height:100%; background:rgba(52,211,153,.7); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <div><h1>Panel del día</h1><div class="sub" id="subtitle">Resumen, stock y productos vendidos</div></div>
+    <div class="row" id="sessionRow" hidden>
+      <span class="mut" id="who"></span>
+      <button class="ghost" id="logoutBtn">Salir</button>
+      <button class="ghost" id="refreshBtn">Actualizar</button>
+    </div>
+  </div>
+
+  <div class="card" id="loginCard">
+    <h2 style="margin:0;font-size:15px">Acceso gerente</h2>
+    <p class="mut">Mismo usuario gerente de Supabase Auth. Sin login no se muestra nada.</p>
+    <label>Supabase URL</label><input id="url" placeholder="https://xyz.supabase.co" autocomplete="off" />
+    <label>Anon key</label><input id="anon" type="password" placeholder="eyJhbGciOi..." autocomplete="off" />
+    <label>Email gerente</label><input id="email" type="email" placeholder="gerente@negocio.com" autocomplete="username" />
+    <label>Contraseña</label><input id="pass" type="password" placeholder="••••••••" autocomplete="current-password" />
+    <div class="row"><button id="loginBtn">Entrar</button></div>
+    <div class="err" id="loginErr"></div>
+  </div>
+
+  <div id="panel" hidden>
+    <div class="card"><div class="mut" id="meta">—</div><div class="grid" id="kpis" style="margin-top:10px"></div></div>
+    <div class="card"><h2 style="margin:0;font-size:15px">Productos vendidos hoy</h2><div id="products" style="margin-top:8px"></div></div>
+    <div class="card"><h2 style="margin:0;font-size:15px">Materiales en stock</h2><div id="materials" style="margin-top:8px"></div></div>
+    <div class="card"><h2 style="margin:0;font-size:15px">Métodos de pago</h2><div id="payments" style="margin-top:8px"></div></div>
+  </div>
+</div>
+
+<script type="module">
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
+const $ = (id) => document.getElementById(id);
+const money = (n) => "$" + (Number(n)||0).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
+const qty = (n) => { const v = Number(n)||0; return Number.isInteger(v) ? String(v) : v.toLocaleString("es-ES",{maximumFractionDigits:3}); };
+const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; };
+
+let sb = null, channel = null, timer = null;
+$("url").value = localStorage.getItem("panel.url") || "";
+$("anon").value = localStorage.getItem("panel.anon") || "";
+$("email").value = localStorage.getItem("panel.email") || "";
+
+async function ensureClient() {
+  const url = $("url").value.trim(), anon = $("anon").value.trim();
+  if (!url || !anon) throw new Error("Falta URL y anon key");
+  localStorage.setItem("panel.url", url); localStorage.setItem("panel.anon", anon);
+  localStorage.setItem("panel.email", $("email").value.trim());
+  if (!sb || sb._url !== url || sb._anon !== anon) {
+    sb = createClient(url, anon, { auth: { persistSession: true, storageKey: "panel-auth" } });
+    sb._url = url; sb._anon = anon;
+  }
+  return sb;
+}
+
+async function load() {
+  const { data: { session } } = await sb.auth.getSession();
+  if (!session) return showLogin();
+  $("loginCard").hidden = true; $("panel").hidden = false; $("sessionRow").hidden = false;
+  $("who").textContent = session.user.email || "";
+  const { data, error } = await sb.from("panel_snapshots").select("*").eq("day", today()).maybeSingle();
+  if (error) { $("meta").textContent = "Error: " + error.message; return; }
+  if (!data) { $("meta").textContent = `Sin snapshot para hoy (${today()}). Publica desde la app → Configuración → Panel online → Publicar ahora.`; $("kpis").innerHTML=""; $("products").innerHTML=""; $("materials").innerHTML=""; $("payments").innerHTML=""; return; }
+  render(data);
+  subscribe();
+}
+
+function render(s) {
+  const k = s.kpis || {};
+  $("meta").textContent = `Día ${s.day} · ${s.device_label || ""} · actualizado ${new Date(s.updated_at).toLocaleString("es-AR")}`;
+  $("subtitle").textContent = `Resumen del ${s.day}`;
+  const cards = [
+    ["Ventas hoy", money(k.ventasHoy), `${k.transacciones||0} transacciones`],
+    ["Ticket prom.", money(k.ticketProm), `${k.articulos||0} artículos`],
+  ];
+  if (s.include_costs) {
+    cards.push(["Ganancia", money(k.ganancia), `Neta ${money(k.gananciaNeta)}`]);
+    cards.push(["Gastos", money((k.gastosNegocio||0)+(k.mermas||0)), `Mes ${money(k.mesTotal)}`]);
+  } else {
+    cards.push(["Semana", money(k.semanaTotal), "últimos 7 días"]);
+    cards.push(["Mes", money(k.mesTotal), "mes actual"]);
+  }
+  $("kpis").innerHTML = cards.map(([l,v,h]) => `<div class="kpi"><small>${l}</small><b>${v}</b><span>${h}</span></div>`).join("");
+
+  const prods = s.products || [];
+  const max = Math.max(1, ...prods.map(p => p.total));
+  $("products").innerHTML = prods.length ? prods.map(p =>
+    `<div style="margin:10px 0"><div style="display:flex;justify-content:space-between;gap:8px"><span>${p.name}</span><span class="mut">${qty(p.qty)} u · ${money(p.total)}${s.include_costs ? " · +"+money(p.profit) : ""}</span></div><div class="bar"><i style="width:${(p.total/max*100).toFixed(1)}%"></i></div></div>`
+  ).join("") : `<p class="mut">Sin ventas hoy.</p>`;
+
+  const mats = s.materials || [];
+  $("materials").innerHTML = mats.length ? `<table><thead><tr><th>Material</th><th class="num">Stock</th><th>Estado</th></tr></thead><tbody>` +
+    mats.map(m => `<tr><td>${m.name}<div class="mut">mín ${qty(m.minStock)} ${m.unit||""}</div></td><td class="num">${qty(m.stock)} ${m.unit||""}</td><td><span class="badge ${m.estado}">${m.estado}</span></td></tr>`).join("") + `</tbody></table>` : `<p class="mut">Sin materiales.</p>`;
+
+  const pays = s.by_payment || [];
+  $("payments").innerHTML = pays.length ? `<table><thead><tr><th>Método</th><th class="num">Ventas</th><th class="num">Total</th></tr></thead><tbody>` +
+    pays.map(p => `<tr><td>${p.method}</td><td class="num">${p.count}</td><td class="num">${money(p.total)}</td></tr>`).join("") + `</tbody></table>` : `<p class="mut">Sin datos.</p>`;
+}
+
+function subscribe() {
+  if (channel) { sb.removeChannel(channel); channel = null; }
+  if (timer) { clearInterval(timer); timer = null; }
+  channel = sb.channel("panel-" + today())
+    .on("postgres_changes", { event: "*", schema: "public", table: "panel_snapshots", filter: `day=eq.${today()}` }, (p) => { if (p.new) render(p.new); });
+  channel.subscribe();
+  timer = setInterval(load, 60_000); // refresco cada 1 min + realtime
+}
+
+function showLogin() {
+  $("loginCard").hidden = false; $("panel").hidden = true; $("sessionRow").hidden = true;
+}
+
+$("loginBtn").onclick = async () => {
+  $("loginErr").textContent = ""; $("loginBtn").disabled = true;
+  try {
+    await ensureClient();
+    const { error } = await sb.auth.signInWithPassword({ email: $("email").value.trim(), password: $("pass").value });
+    if (error) throw error;
+    $("pass").value = "";
+    await load();
+  } catch (e) { $("loginErr").textContent = e.message || String(e); }
+  finally { $("loginBtn").disabled = false; }
+};
+$("logoutBtn").onclick = async () => { await sb?.auth.signOut(); if (channel) sb.removeChannel(channel); if (timer) clearInterval(timer); showLogin(); };
+$("refreshBtn").onclick = () => load();
+
+// Auto-login si ya hay sesión guardada y config cargada
+(async () => {
+  if ($("url").value && $("anon").value) {
+    try { await ensureClient(); await load(); } catch {}
+  }
+})();
+</script>
+</body>
+</html>

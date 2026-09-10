@@ -7,6 +7,7 @@ import LicenseGate from "./components/LicenseGate";
 import RoleGate from "./components/RoleGate";
 import { ToastProvider } from "./components/ui";
 import { AuthProvider, useAuth } from "./lib/auth";
+import { usePanelAutoSync } from "./lib/usePanelAutoSync";
 import Configuracion from "./pages/Configuracion";
 import Gastos from "./pages/Gastos";
 import Licencia from "./pages/Licencia";
@@ -41,6 +42,7 @@ function DependienteBanner() {
 }
 
 function Shell() {
+  usePanelAutoSync();
   return (
     <div className="flex h-full">
       <Sidebar />

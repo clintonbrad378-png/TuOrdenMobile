@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import {
+  Cloud,
   Copy,
   Database,
   Eye,
@@ -18,6 +19,20 @@ import { api } from "../lib/api";
 import type { DbInfo } from "../lib/types";
 import { errMsg, humanSize, isoToday } from "../lib/format";
 import { useAuth } from "../lib/auth";
+import {
+  getLastPush,
+  getPanelClient,
+  getPanelConfig,
+  getPanelEmail,
+  getPanelIncludeCosts,
+  getPanelIntervalMin,
+  savePanelConfig,
+  setPanelEmail,
+  setPanelIncludeCosts,
+  setPanelIntervalMin,
+} from "../lib/supabase";
+import { pushPanelSnapshot, resetPanelDedupe } from "../lib/panelSync";
+import { notifyPanelConfigChanged } from "../lib/usePanelAutoSync";
 import {
   Badge,
   Button,
@@ -43,6 +58,18 @@ export default function Configuracion() {
   const [showPins, setShowPins] = useState(false);
   const [savingPin, setSavingPin] = useState(false);
 
+  // Panel online (Supabase)
+  const [sbUrl, setSbUrl] = useState("");
+  const [sbAnon, setSbAnon] = useState("");
+  const [sbEmail, setSbEmail] = useState("");
+  const [sbPass, setSbPass] = useState("");
+  const [sbSession, setSbSession] = useState<string | null>(null);
+  const [sbInterval, setSbInterval] = useState(5);
+  const [sbCosts, setSbCosts] = useState(true);
+  const [sbBusy, setSbBusy] = useState(false);
+  const [sbLastPush, setSbLastPush] = useState<string | null>(null);
+  const [showSbKeys, setShowSbKeys] = useState(false);
+
   const load = useCallback(async () => {
     try {
       setInfo(await api.dbInfo());
@@ -61,6 +88,114 @@ export default function Configuracion() {
   useEffect(() => {
     load();
   }, [load]);
+
+  // Cargar config del panel + sesión Supabase
+  useEffect(() => {
+    const cfg = getPanelConfig();
+    setSbUrl(cfg.url);
+    setSbAnon(cfg.anonKey);
+    setSbEmail(getPanelEmail());
+    setSbInterval(getPanelIntervalMin());
+    setSbCosts(getPanelIncludeCosts());
+    setSbLastPush(getLastPush());
+    const sb = getPanelClient();
+    sb?.auth.getSession().then(({ data }) => {
+      setSbSession(data.session?.user?.email ?? null);
+    }).catch(() => {});
+    const { data: sub } = sb?.auth.onAuthStateChange((_e, s) => {
+      setSbSession(s?.user?.email ?? null);
+    }) ?? { data: { subscription: { unsubscribe: () => {} } } };
+    return () => sub.subscription.unsubscribe();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleSavePanelConfig = () => {
+    savePanelConfig({ url: sbUrl, anonKey: sbAnon });
+    setPanelEmail(sbEmail);
+    setPanelIntervalMin(sbInterval);
+    setPanelIncludeCosts(sbCosts);
+    resetPanelDedupe();
+    notifyPanelConfigChanged();
+    toast("success", "Configuración del panel guardada");
+  };
+
+  const handlePanelLogin = async () => {
+    if (!sbEmail.trim() || !sbPass) {
+      toast("error", "Ingresa email y contraseña del gerente");
+      return;
+    }
+    setSbBusy(true);
+    try {
+      savePanelConfig({ url: sbUrl, anonKey: sbAnon });
+      setPanelEmail(sbEmail);
+      const sb = getPanelClient();
+      if (!sb) throw new Error("Configura URL y anon key primero");
+      const { error } = await sb.auth.signInWithPassword({ email: sbEmail.trim(), password: sbPass });
+      if (error) throw new Error(error.message);
+      setSbPass("");
+      notifyPanelConfigChanged();
+      toast("success", "Sesión de gerente iniciada para el panel");
+    } catch (e) {
+      toast("error", errMsg(e));
+    } finally {
+      setSbBusy(false);
+    }
+  };
+
+  const handlePanelLogout = async () => {
+    try {
+      await getPanelClient()?.auth.signOut();
+      toast("info", "Sesión del panel cerrada");
+    } catch (e) {
+      toast("error", errMsg(e));
+    }
+  };
+
+  const handlePanelSignup = async () => {
+    if (!sbEmail.trim() || !sbPass) {
+      toast("error", "Ingresa email y contraseña para crear la cuenta de gerente");
+      return;
+    }
+    if (sbPass.length < 6) {
+      toast("error", "La contraseña debe tener al menos 6 caracteres");
+      return;
+    }
+    setSbBusy(true);
+    try {
+      savePanelConfig({ url: sbUrl, anonKey: sbAnon });
+      setPanelEmail(sbEmail);
+      const sb = getPanelClient();
+      if (!sb) throw new Error("Configura URL y anon key primero");
+      const { data, error } = await sb.auth.signUp({ email: sbEmail.trim(), password: sbPass });
+      if (error) throw new Error(error.message);
+      if (!data.session) {
+        throw new Error(
+          "Cuenta creada. Revisa tu email para confirmarla, o desactiva Auth → Sign In/Up → Confirm email en Supabase y vuelve a iniciar sesión",
+        );
+      }
+      setSbPass("");
+      notifyPanelConfigChanged();
+      toast("success", "Cuenta de gerente creada y sesión iniciada");
+    } catch (e) {
+      toast("error", errMsg(e));
+    } finally {
+      setSbBusy(false);
+    }
+  };
+
+  const handlePublishNow = async () => {
+    setSbBusy(true);
+    try {
+      savePanelConfig({ url: sbUrl, anonKey: sbAnon });
+      const r = await pushPanelSnapshot(true);
+      setSbLastPush(r.updatedAt);
+      toast("success", r.skipped ? "Sin cambios, nada que subir" : "Resumen del día publicado");
+    } catch (e) {
+      toast("error", errMsg(e));
+    } finally {
+      setSbBusy(false);
+    }
+  };
 
   const createBackup = async () => {
     setBackingUp(true);
@@ -313,6 +448,133 @@ export default function Configuracion() {
             </div>
             <p className="mt-1.5 text-xs leading-relaxed text-zinc-500">
               No tienes permiso para cambiar el PIN de gerente ni ver esta configuración completa. Inicia sesión como gerente para gestionar el PIN.
+            </p>
+          </Card>
+        )}
+
+        {/* Panel online (Supabase) */}
+        {!isDependiente && (
+          <Card className="mt-6 p-5">
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="flex items-center gap-2 text-sm font-medium text-zinc-200">
+                <Cloud size={16} className="text-accent-400" />
+                Panel online
+              </h2>
+              <Badge tone={sbSession ? "accent" : "zinc"}>
+                {sbSession ? `Conectado: ${sbSession}` : "Sin sesión"}
+              </Badge>
+            </div>
+            <p className="mt-1.5 text-xs leading-relaxed text-zinc-500">
+              Mira las ventas del día, el stock y los productos vendidos desde cualquier navegador.
+              Pega tu URL y clave, inicia sesión y la app lo mantiene actualizado solo.
+            </p>
+
+            <div className="mt-4 grid gap-3">
+              <div className="grid gap-1.5">
+                <label className="text-xs font-medium text-zinc-400">Supabase URL</label>
+                <Input
+                  placeholder="https://xyz.supabase.co"
+                  value={sbUrl}
+                  onChange={(e) => setSbUrl(e.target.value)}
+                />
+              </div>
+              <div className="grid gap-1.5">
+                <label className="text-xs font-medium text-zinc-400">Anon key</label>
+                <div className="relative">
+                  <Input
+                    type={showSbKeys ? "text" : "password"}
+                    placeholder="eyJhbGciOi..."
+                    value={sbAnon}
+                    onChange={(e) => setSbAnon(e.target.value)}
+                    className="pr-9"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowSbKeys((v) => !v)}
+                    className="absolute top-1/2 right-2 -translate-y-1/2 rounded-md p-1 text-zinc-500 hover:bg-white/5"
+                  >
+                    {showSbKeys ? <EyeOff size={14} /> : <Eye size={14} />}
+                  </button>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div className="grid gap-1.5">
+                  <label className="text-xs font-medium text-zinc-400">Email gerente</label>
+                  <Input
+                    type="email"
+                    placeholder="gerente@negocio.com"
+                    value={sbEmail}
+                    onChange={(e) => setSbEmail(e.target.value)}
+                  />
+                </div>
+                <div className="grid gap-1.5">
+                  <label className="text-xs font-medium text-zinc-400">Contraseña</label>
+                  <Input
+                    type="password"
+                    placeholder="••••••••"
+                    value={sbPass}
+                    onChange={(e) => setSbPass(e.target.value)}
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div className="grid gap-1.5">
+                  <label className="text-xs font-medium text-zinc-400">Actualizar cada</label>
+                  <select
+                    value={sbInterval}
+                    onChange={(e) => setSbInterval(Number(e.target.value))}
+                    className="w-full rounded-lg border border-white/10 bg-surface-800 px-3 py-2 text-sm text-zinc-100 outline-none"
+                  >
+                    <option value={0}>Solo manual</option>
+                    <option value={1}>Cada 1 min</option>
+                    <option value={5}>Cada 5 min</option>
+                    <option value={15}>Cada 15 min</option>
+                    <option value={30}>Cada 30 min</option>
+                    <option value={60}>Cada 1 hora</option>
+                  </select>
+                </div>
+                <label className="flex items-end gap-2 pb-2 text-xs text-zinc-400">
+                  <input
+                    type="checkbox"
+                    checked={sbCosts}
+                    onChange={(e) => setSbCosts(e.target.checked)}
+                    className="h-4 w-4 accent-emerald-500"
+                  />
+                  Incluir costos y ganancia
+                </label>
+              </div>
+              {sbLastPush && (
+                <p className="text-[11px] text-zinc-600">Última publicación: {sbLastPush}</p>
+              )}
+            </div>
+
+            <div className="mt-4 flex flex-wrap gap-2">
+              <Button variant="outline" onClick={handleSavePanelConfig}>
+                Guardar
+              </Button>
+              {sbSession ? (
+                <Button variant="ghost" onClick={handlePanelLogout}>
+                  Cerrar sesión
+                </Button>
+              ) : (
+                <>
+                  <Button variant="outline" onClick={handlePanelLogin} loading={sbBusy}>
+                    <Lock size={15} />
+                    Iniciar sesión
+                  </Button>
+                  <Button variant="ghost" onClick={handlePanelSignup} disabled={sbBusy}>
+                    Crear cuenta gerente
+                  </Button>
+                </>
+              )}
+              <Button variant="primary" onClick={handlePublishNow} loading={sbBusy}>
+                <Cloud size={15} />
+                Publicar ahora
+              </Button>
+            </div>
+            <p className="mt-2 text-[11px] leading-relaxed text-zinc-600">
+              El auto-sync omite subidas si nada cambió (ahorra datos). En móvil solo sincroniza con la app abierta;
+              al volver al frente se actualiza solo.
             </p>
           </Card>
         )}
