@@ -32,7 +32,7 @@ export default function LicenseGate({ children }: { children: React.ReactNode })
   const handleGenerateDemo = async () => {
     setGenerating(true);
     try {
-      await api.licenseGenerate(365);
+      await api.licenseGenerate(7);
       await doCheck();
     } catch (e) {
       setError(e instanceof Error ? e.message : typeof e === "string" ? e : JSON.stringify(e));
@@ -138,7 +138,7 @@ export default function LicenseGate({ children }: { children: React.ReactNode })
               </Button>
               <Button variant="outline" onClick={handleGenerateDemo} loading={generating}>
                 <KeyRound size={16} />
-                {generating ? "Generando..." : "Generar licencia demo (365 días)"}
+                {generating ? "Generando..." : "Generar licencia demo (7 días)"}
               </Button>
               {error && !check && (
                 <p className="pt-1 text-center text-xs text-red-400">{error}</p>

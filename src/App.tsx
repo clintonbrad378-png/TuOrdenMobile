@@ -17,6 +17,7 @@ import Menu from "./pages/Menu";
 import Reportes from "./pages/Reportes";
 import Venta from "./pages/Venta";
 import Entradas from "./pages/Entradas";
+import Historial from "./pages/Historial";
 import Mermas from "./pages/Mermas";
 
 function DependienteGuard({ children }: { children: React.ReactNode }) {
@@ -53,6 +54,7 @@ function Shell() {
             <Routes>
               <Route path="/" element={<Dashboard />} />
               <Route path="/venta" element={<Venta />} />
+              <Route path="/historial" element={<Historial />} />
               <Route path="/menu" element={<Menu />} />
               <Route path="/materiales" element={<Materiales />} />
               <Route path="/entradas" element={<Entradas />} />

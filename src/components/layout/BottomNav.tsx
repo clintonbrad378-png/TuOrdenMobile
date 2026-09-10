@@ -3,6 +3,7 @@ import {
   BarChart3,
   Boxes,
   CreditCard,
+  History,
   LayoutDashboard,
   Settings,
   ShoppingCart,
@@ -16,6 +17,7 @@ import { useAuth } from "../../lib/auth";
 const NAV = [
   { to: "/", label: "Inicio", icon: LayoutDashboard, end: true },
   { to: "/venta", label: "Venta", icon: ShoppingCart, end: false },
+  { to: "/historial", label: "Historial", icon: History, end: false },
   { to: "/menu", label: "Menú", icon: UtensilsCrossed, end: false },
   { to: "/materiales", label: "Materiales", icon: Boxes, end: false },
   { to: "/entradas", label: "Entradas", icon: Truck, end: false },
@@ -32,7 +34,7 @@ const VENTA_ONLY = [
 export default function BottomNav() {
   const { isDependiente } = useAuth();
   const nav = isDependiente ? VENTA_ONLY : NAV;
-  const cols = isDependiente ? "grid-cols-1" : "grid-cols-8";
+  const cols = isDependiente ? "grid-cols-1" : "grid-cols-9";
 
   // En modo dependiente solo mostrar venta centrado + banner
   if (isDependiente) {

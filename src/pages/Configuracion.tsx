@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import {
+  Check,
+  ChevronDown,
   Cloud,
   Copy,
   Database,
@@ -41,8 +43,18 @@ import {
   Input,
   PageHeader,
   Spinner,
+  cn,
   useToast,
 } from "../components/ui";
+
+const INTERVAL_OPTIONS = [
+  { value: 0, label: "Solo manual" },
+  { value: 1, label: "Cada 1 min" },
+  { value: 5, label: "Cada 5 min" },
+  { value: 15, label: "Cada 15 min" },
+  { value: 30, label: "Cada 30 min" },
+  { value: 60, label: "Cada 1 hora" },
+];
 
 export default function Configuracion() {
   const [info, setInfo] = useState<DbInfo | null>(null);
@@ -69,6 +81,7 @@ export default function Configuracion() {
   const [sbBusy, setSbBusy] = useState(false);
   const [sbLastPush, setSbLastPush] = useState<string | null>(null);
   const [showSbKeys, setShowSbKeys] = useState(false);
+  const [intervalOpen, setIntervalOpen] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -252,7 +265,8 @@ export default function Configuracion() {
   };
 
   const handleChangePin = async () => {
-    if (!currentPin.trim() || !newPin.trim() || !confirmPin.trim()) {
+    const hasPin = pinHint !== "";
+    if ((hasPin && !currentPin.trim()) || !newPin.trim() || !confirmPin.trim()) {
       toast("error", "Completa todos los campos de PIN");
       return;
     }
@@ -266,10 +280,12 @@ export default function Configuracion() {
     }
     setSavingPin(true);
     try {
-      const ok = await api.verifyManagerPin(currentPin.trim());
-      if (!ok) {
-        toast("error", "PIN actual incorrecto");
-        return;
+      if (hasPin) {
+        const ok = await api.verifyManagerPin(currentPin.trim());
+        if (!ok) {
+          toast("error", "PIN actual incorrecto");
+          return;
+        }
       }
       await api.setManagerPin(newPin.trim());
       const hint = await api.getManagerPinHint();
@@ -277,7 +293,7 @@ export default function Configuracion() {
       setCurrentPin("");
       setNewPin("");
       setConfirmPin("");
-      toast("success", "PIN de gerente actualizado correctamente");
+      toast("success", hasPin ? "PIN de gerente actualizado correctamente" : "PIN de gerente creado correctamente");
     } catch (e) {
       toast("error", errMsg(e));
     } finally {
@@ -377,30 +393,32 @@ export default function Configuracion() {
               <Badge tone={pinHint ? "accent" : "zinc"}>{pinHint ? `Actual: ${pinHint}` : "Sin configurar"}</Badge>
             </div>
             <p className="mt-1.5 text-xs leading-relaxed text-zinc-500">
-              Este PIN protege el acceso completo a la app. El modo dependiente no lo necesita. Por defecto es <span className="font-mono text-zinc-400">1234</span>.
+              Este PIN protege el acceso completo a la app. El modo dependiente no lo necesita.
             </p>
 
             <div className="mt-4 grid gap-3">
-              <div className="grid gap-1.5">
-                <label className="text-xs font-medium text-zinc-400">PIN actual</label>
-                <div className="relative">
-                  <Input
-                    type={showPins ? "text" : "password"}
-                    inputMode="numeric"
-                    placeholder="Ingresa PIN actual"
-                    value={currentPin}
-                    onChange={(e) => setCurrentPin(e.target.value.replace(/\D/g, "").slice(0, 12))}
-                    className="pr-9"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPins((v) => !v)}
-                    className="absolute top-1/2 right-2 -translate-y-1/2 rounded-md p-1 text-zinc-500 hover:bg-white/5"
-                  >
-                    {showPins ? <EyeOff size={14} /> : <Eye size={14} />}
-                  </button>
+              {pinHint !== "" && (
+                <div className="grid gap-1.5">
+                  <label className="text-xs font-medium text-zinc-400">PIN actual</label>
+                  <div className="relative">
+                    <Input
+                      type={showPins ? "text" : "password"}
+                      inputMode="numeric"
+                      placeholder="Ingresa PIN actual"
+                      value={currentPin}
+                      onChange={(e) => setCurrentPin(e.target.value.replace(/\D/g, "").slice(0, 12))}
+                      className="pr-9"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPins((v) => !v)}
+                      className="absolute top-1/2 right-2 -translate-y-1/2 rounded-md p-1 text-zinc-500 hover:bg-white/5"
+                    >
+                      {showPins ? <EyeOff size={14} /> : <Eye size={14} />}
+                    </button>
+                  </div>
                 </div>
-              </div>
+              )}
               <div className="grid gap-1.5">
                 <label className="text-xs font-medium text-zinc-400">Nuevo PIN (4-12 dígitos)</label>
                 <Input
@@ -426,7 +444,7 @@ export default function Configuracion() {
             <div className="mt-4 flex gap-2">
               <Button variant="primary" onClick={handleChangePin} loading={savingPin}>
                 <Shield size={15} />
-                {savingPin ? "Guardando..." : "Actualizar PIN"}
+                {savingPin ? "Guardando..." : pinHint ? "Actualizar PIN" : "Crear PIN"}
               </Button>
               <Button
                 variant="ghost"
@@ -520,18 +538,50 @@ export default function Configuracion() {
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div className="grid gap-1.5">
                   <label className="text-xs font-medium text-zinc-400">Actualizar cada</label>
-                  <select
-                    value={sbInterval}
-                    onChange={(e) => setSbInterval(Number(e.target.value))}
-                    className="w-full rounded-lg border border-white/10 bg-surface-800 px-3 py-2 text-sm text-zinc-100 outline-none"
-                  >
-                    <option value={0}>Solo manual</option>
-                    <option value={1}>Cada 1 min</option>
-                    <option value={5}>Cada 5 min</option>
-                    <option value={15}>Cada 15 min</option>
-                    <option value={30}>Cada 30 min</option>
-                    <option value={60}>Cada 1 hora</option>
-                  </select>
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={() => setIntervalOpen((v) => !v)}
+                      className="flex w-full items-center justify-between rounded-lg border border-white/10 bg-surface-800 px-3 py-2 text-left text-sm text-zinc-100 outline-none transition-colors focus:border-accent-500/50"
+                    >
+                      <span>{INTERVAL_OPTIONS.find((o) => o.value === sbInterval)?.label}</span>
+                      <ChevronDown
+                        size={15}
+                        className={cn("shrink-0 text-zinc-500 transition-transform", intervalOpen && "rotate-180")}
+                      />
+                    </button>
+                    {intervalOpen && (
+                      <>
+                        <button
+                          aria-hidden
+                          tabIndex={-1}
+                          className="fixed inset-0 z-10 cursor-default"
+                          onClick={() => setIntervalOpen(false)}
+                        />
+                        <div className="absolute inset-x-0 z-20 mt-1.5 overflow-hidden rounded-xl border border-white/10 bg-surface-800 shadow-2xl">
+                          {INTERVAL_OPTIONS.map((o) => (
+                            <button
+                              key={o.value}
+                              type="button"
+                              onClick={() => {
+                                setSbInterval(o.value);
+                                setIntervalOpen(false);
+                              }}
+                              className={cn(
+                                "flex w-full items-center justify-between px-3 py-2.5 text-left text-sm transition-colors",
+                                o.value === sbInterval
+                                  ? "bg-accent-500/10 font-medium text-accent-400"
+                                  : "text-zinc-300 hover:bg-white/[0.05]",
+                              )}
+                            >
+                              <span>{o.label}</span>
+                              {o.value === sbInterval && <Check size={14} />}
+                            </button>
+                          ))}
+                        </div>
+                      </>
+                    )}
+                  </div>
                 </div>
                 <label className="flex items-end gap-2 pb-2 text-xs text-zinc-400">
                   <input

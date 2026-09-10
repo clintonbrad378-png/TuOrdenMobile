@@ -28,6 +28,7 @@
 
   html {
     -webkit-tap-highlight-color: transparent;
+    color-scheme: dark;
   }
 
   body {

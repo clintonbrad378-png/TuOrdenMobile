@@ -100,6 +100,13 @@ export interface CreateSaleInput {
   note: string | null;
 }
 
+export interface UpdateSaleInput {
+  id: number;
+  items: { productId: number; quantity: number }[];
+  paymentMethod: string;
+  note: string | null;
+}
+
 export interface CreditSale {
   id: number;
   clientName: string;

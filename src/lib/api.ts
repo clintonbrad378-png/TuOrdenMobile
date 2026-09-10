@@ -25,6 +25,7 @@ import type {
   SaleSummary,
   UpdateExpenseInput,
   UpdateMaterialInput,
+  UpdateSaleInput,
   LicenseVerify,
 } from "./types";
 
@@ -58,6 +59,8 @@ export const api = {
 
   // Sales
   createSale: (input: CreateSaleInput) => invoke<Sale>("create_sale", { input }),
+  updateSale: (input: UpdateSaleInput) => invoke<Sale>("update_sale", { input }),
+  deleteSale: (id: number) => invoke<void>("delete_sale", { id }),
   listSales: (from: string, to: string) => invoke<SaleSummary[]>("list_sales", { from, to }),
   getSale: (id: number) => invoke<SaleDetail>("get_sale", { id }),
 

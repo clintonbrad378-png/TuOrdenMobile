@@ -4,6 +4,7 @@ import {
   Boxes,
   ChefHat,
   CreditCard,
+  History,
   LayoutDashboard,
   LogOut,
   Settings,
@@ -19,6 +20,7 @@ import { useAuth } from "../../lib/auth";
 const NAV = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard, end: true },
   { to: "/venta", label: "Venta", icon: ShoppingCart, end: false },
+  { to: "/historial", label: "Historial", icon: History, end: false },
   { to: "/menu", label: "Menú", icon: UtensilsCrossed, end: false },
   { to: "/materiales", label: "Materiales", icon: Boxes, end: false },
   { to: "/entradas", label: "Entradas", icon: Truck, end: false },

@@ -81,7 +81,6 @@ CREATE TABLE IF NOT EXISTS app_config (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
-INSERT OR IGNORE INTO app_config (key, value) VALUES ('manager_pin', '1234');
 "#;
 
 const MIGRATION_V4: &str = r#"

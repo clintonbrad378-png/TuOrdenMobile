@@ -33,7 +33,8 @@ pub async fn verify_manager_pin(state: State<'_, AppState>, pin: String) -> Resu
         .map_err(|e| e.to_string())?;
     match stored {
         Some(s) => Ok(s == pin),
-        None => Ok(pin == "1234"),
+        // Sin PIN configurado no hay acceso por defecto: el gerente debe crearlo.
+        None => Ok(false),
     }
 }
 
@@ -76,6 +77,6 @@ pub async fn get_manager_pin_hint(state: State<'_, AppState>) -> Result<String, 
         let masked = format!("{}{}{}", &p[0..1], "*".repeat(p.len() - 2), &p[p.len() - 1..]);
         Ok(masked)
     } else {
-        Ok("1234 (por defecto)".to_string())
+        Ok(String::new())
     }
 }

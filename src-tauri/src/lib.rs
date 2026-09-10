@@ -40,6 +40,8 @@ pub fn run() {
             commands::products::set_product_active,
             commands::products::delete_product,
             commands::sales::create_sale,
+            commands::sales::update_sale,
+            commands::sales::delete_sale,
             commands::sales::list_sales,
             commands::sales::get_sale,
             commands::sales::create_credit_sale,

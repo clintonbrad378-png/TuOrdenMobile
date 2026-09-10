@@ -137,6 +137,15 @@ pub struct CreateSaleInput {
     pub note: Option<String>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateSaleInput {
+    pub id: i64,
+    pub items: Vec<SaleItemInput>,
+    pub payment_method: String,
+    pub note: Option<String>,
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CreditSale {

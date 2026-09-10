@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ShieldCheck, ShoppingCart, Lock, Eye, EyeOff, LogOut } from "lucide-react";
 import { useAuth } from "../lib/auth";
-import { Button, Card, Input } from "./ui";
+import { api } from "../lib/api";
+import { Button, Card, Input, Spinner } from "./ui";
 
 export default function RoleGate({ children }: { children: React.ReactNode }) {
   const { role, loginGerente, loginDependiente } = useAuth();
@@ -10,6 +11,18 @@ export default function RoleGate({ children }: { children: React.ReactNode }) {
   const [pinVisible, setPinVisible] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [checkingPin, setCheckingPin] = useState(true);
+  const [needsSetup, setNeedsSetup] = useState(false);
+  const [newPin, setNewPin] = useState("");
+  const [confirmPin, setConfirmPin] = useState("");
+
+  useEffect(() => {
+    api
+      .managerPinExists()
+      .then((exists) => setNeedsSetup(!exists))
+      .catch(() => setNeedsSetup(false))
+      .finally(() => setCheckingPin(false));
+  }, []);
 
   // If role selected, allow
   if (role !== null) {
@@ -38,6 +51,39 @@ export default function RoleGate({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const handleCreatePin = async () => {
+    const p1 = newPin.trim();
+    const p2 = confirmPin.trim();
+    if (!p1 || !p2) {
+      setError("Crea tu PIN de gerente (4-12 dígitos)");
+      return;
+    }
+    if (p1 !== p2) {
+      setError("El PIN y la confirmación no coinciden");
+      return;
+    }
+    if (p1.length < 4 || p1.length > 12 || !/^\d+$/.test(p1)) {
+      setError("El PIN debe ser de 4 a 12 dígitos numéricos");
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    try {
+      await api.setManagerPin(p1);
+      const ok = await loginGerente(p1);
+      if (!ok) {
+        setError("PIN creado, pero falló el ingreso. Intenta de nuevo.");
+      }
+      setNewPin("");
+      setConfirmPin("");
+      setShowPin(false);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : typeof e === "string" ? e : "Error al crear el PIN");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleDependiente = () => {
     loginDependiente();
   };
@@ -55,7 +101,11 @@ export default function RoleGate({ children }: { children: React.ReactNode }) {
             <p className="mt-1.5 text-sm text-zinc-500">Elige cómo deseas ingresar</p>
           </div>
 
-          {!showPin ? (
+          {checkingPin ? (
+            <div className="grid h-40 place-items-center">
+              <Spinner className="h-8 w-8" />
+            </div>
+          ) : !showPin ? (
             <div className="grid gap-4">
               <Card className="p-5 transition-colors hover:border-accent-500/20">
                 <div className="flex items-start gap-4">
@@ -69,7 +119,7 @@ export default function RoleGate({ children }: { children: React.ReactNode }) {
                     </p>
                     <Button variant="primary" size="sm" className="mt-3 w-full sm:w-auto" onClick={() => setShowPin(true)}>
                       <Lock size={14} />
-                      Ingresar PIN de gerente
+                      {needsSetup ? "Crear PIN de gerente" : "Ingresar PIN de gerente"}
                     </Button>
                   </div>
                 </div>
@@ -94,9 +144,89 @@ export default function RoleGate({ children }: { children: React.ReactNode }) {
               </Card>
 
               <p className="px-2 text-center text-[11px] leading-relaxed text-zinc-600">
-                Podrás cambiar de modo en cualquier momento desde el menú. El PIN por defecto es <span className="font-mono text-zinc-500">1234</span> (cámbialo en Configuración).
+                {needsSetup
+                  ? "Primera vez: crea tu PIN de gerente para proteger el acceso completo."
+                  : "Podrás cambiar de modo en cualquier momento desde el menú."}
               </p>
             </div>
+          ) : needsSetup ? (
+            <Card className="p-6">
+              <div className="flex items-center justify-between">
+                <h2 className="flex items-center gap-2 text-sm font-semibold text-zinc-100">
+                  <Lock size={16} className="text-accent-400" />
+                  Crea tu PIN de Gerente
+                </h2>
+                <button
+                  onClick={() => {
+                    setShowPin(false);
+                    setNewPin("");
+                    setConfirmPin("");
+                    setError(null);
+                  }}
+                  className="text-xs text-zinc-500 hover:text-zinc-300"
+                >
+                  Volver
+                </button>
+              </div>
+              <p className="mt-1 text-xs text-zinc-500">Solo tú lo conocerás. Guárdalo bien, protege todo el negocio.</p>
+
+              <div className="mt-4 grid gap-3">
+                <div className="relative">
+                  <Input
+                    type={pinVisible ? "text" : "password"}
+                    inputMode="numeric"
+                    placeholder="Nuevo PIN (4-12 dígitos)"
+                    value={newPin}
+                    onChange={(e) => {
+                      setNewPin(e.target.value.replace(/\D/g, "").slice(0, 12));
+                      if (error) setError(null);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") handleCreatePin();
+                    }}
+                    autoFocus
+                    className="pr-9"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setPinVisible((v) => !v)}
+                    className="absolute top-1/2 right-2 -translate-y-1/2 rounded-md p-1 text-zinc-500 hover:bg-white/5 hover:text-zinc-300"
+                  >
+                    {pinVisible ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
+                <Input
+                  type={pinVisible ? "text" : "password"}
+                  inputMode="numeric"
+                  placeholder="Confirma el PIN"
+                  value={confirmPin}
+                  onChange={(e) => {
+                    setConfirmPin(e.target.value.replace(/\D/g, "").slice(0, 12));
+                    if (error) setError(null);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") handleCreatePin();
+                  }}
+                />
+              </div>
+              {error && <p className="mt-2 text-xs text-red-400">{error}</p>}
+
+              <div className="mt-4 flex gap-2">
+                <Button variant="ghost" className="flex-1" onClick={() => setShowPin(false)}>
+                  Cancelar
+                </Button>
+                <Button variant="primary" className="flex-1" onClick={handleCreatePin} loading={loading}>
+                  {loading ? "Creando..." : "Crear y entrar"}
+                </Button>
+              </div>
+
+              <div className="mt-4 flex justify-center">
+                <button onClick={handleDependiente} className="inline-flex items-center gap-1.5 text-xs text-zinc-500 hover:text-zinc-300">
+                  <LogOut size={12} />
+                  Entrar como dependiente en su lugar
+                </button>
+              </div>
+            </Card>
           ) : (
             <Card className="p-6">
               <div className="flex items-center justify-between">
@@ -158,7 +288,7 @@ export default function RoleGate({ children }: { children: React.ReactNode }) {
 
               <div className="mt-4 rounded-xl bg-surface-800 px-3 py-2.5">
                 <p className="text-xs leading-relaxed text-zinc-500">
-                  ¿Olvidaste el PIN? Puedes restablecerlo desde la base de datos o reinstalando la app (por defecto: 1234).
+                  ¿Olvidaste el PIN? Solo el gerente puede cambiarlo desde Configuración con el PIN actual.
                 </p>
               </div>
 
