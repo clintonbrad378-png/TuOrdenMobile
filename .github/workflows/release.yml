@@ -28,13 +28,23 @@ jobs:
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
-          java-version: '21'
+          java-version: '17'
 
       - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
         with:
-          api-level: 33
-          ndk-version: '27'
+          packages: 'platform-tools "platforms;android-36" "build-tools;36.0.0" "ndk;27.2.12479018"'
+
+      - name: Export Android NDK env
+        run: |
+          SDK_ROOT="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          NDK_DIR="$SDK_ROOT/ndk/27.2.12479018"
+          if [ ! -d "$NDK_DIR" ]; then
+            NDK_DIR=$(ls -d "$SDK_ROOT"/ndk/* 2>/dev/null | sort -V | tail -n1)
+          fi
+          echo "NDK_HOME=$NDK_DIR" >> $GITHUB_ENV
+          echo "ANDROID_NDK_HOME=$NDK_DIR" >> $GITHUB_ENV
+          echo "NDK: $NDK_DIR"
 
       - name: Accept Android licenses
         run: yes | sdkmanager --licenses

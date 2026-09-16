@@ -27,12 +27,27 @@ jobs:
         with:
           targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
         with:
-          api-level: 34
-          ndk-version: r27c
-          emulator: false
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: 'platform-tools "platforms;android-36" "build-tools;36.0.0" "ndk;27.2.12479018"'
+
+      - name: Export Android NDK env
+        run: |
+          SDK_ROOT="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          NDK_DIR="$SDK_ROOT/ndk/27.2.12479018"
+          if [ ! -d "$NDK_DIR" ]; then
+            NDK_DIR=$(ls -d "$SDK_ROOT"/ndk/* 2>/dev/null | sort -V | tail -n1)
+          fi
+          echo "NDK_HOME=$NDK_DIR" >> $GITHUB_ENV
+          echo "ANDROID_NDK_HOME=$NDK_DIR" >> $GITHUB_ENV
+          echo "NDK: $NDK_DIR"
 
       - name: Configure Cargo for Android
         run: |
