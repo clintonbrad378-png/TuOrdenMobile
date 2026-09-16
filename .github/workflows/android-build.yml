@@ -97,44 +97,30 @@ jobs:
       - name: Build frontend
         run: npm run build
 
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version "^2.0.0" --locked
+
       - name: Build Android APK (debug)
-        uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
-          TAURI_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
-        with:
-          tagName: app-v__VERSION__
-          releaseName: 'App v__VERSION__'
-          releaseBody: 'See the assets to download this version and install.'
-          releaseDraft: true
-          prerelease: false
-          args: --target aarch64-linux-android --debug
+        run: |
+          cd src-tauri
+          cargo tauri android build --target aarch64-linux-android --debug
 
       - name: Build Android APK (release)
-        uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
-          TAURI_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
-        with:
-          tagName: app-v__VERSION__
-          releaseName: 'App v__VERSION__'
-          releaseBody: 'See the assets to download this version and install.'
-          releaseDraft: true
-          prerelease: false
-          args: --target aarch64-linux-android
+        run: |
+          cd src-tauri
+          cargo tauri android build --target aarch64-linux-android
 
       - name: Upload APK artifacts
         uses: actions/upload-artifact@v4
         with:
           name: tauri-android-apk
-          path: src-tauri/target/*/apk/*.apk
+          path: src-tauri/gen/android/app/build/outputs/apk/**/*.apk
+          if-no-files-found: error
           retention-days: 7
 
       - name: Upload AAB artifacts
         uses: actions/upload-artifact@v4
         with:
           name: tauri-android-aab
-          path: src-tauri/target/*/bundle/*.aab
+          path: src-tauri/gen/android/app/build/outputs/bundle/**/*.aab
           retention-days: 7
