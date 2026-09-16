@@ -84,19 +84,31 @@ export default function ProductPicker({
           </div>
         ) : (
           <div className="grid grid-cols-2 gap-2.5 sm:gap-3 lg:grid-cols-3 2xl:grid-cols-4 max-h-96 overflow-y-auto">
-            {filtered.map((p) => (
-              <button
-                key={p.id}
-                onClick={() => handleSelect(p)}
-                className="relative rounded-xl border border-white/[0.06] bg-surface-900 p-3 text-left transition-all active:scale-[0.97] active:bg-surface-800 sm:p-4"
-              >
-                <p className="pr-7 text-sm leading-snug font-medium text-zinc-100">{p.name}</p>
-                <p className="mt-0.5 truncate text-[11px] text-zinc-500">{p.category}</p>
-                <p className="mt-2 text-lg font-semibold tabular-nums text-accent-400 sm:mt-3">
-                  {fmtMoney(p.price)}
-                </p>
-              </button>
-            ))}
+            {filtered.map((p) => {
+              const out = p.tracksStock && p.stock <= 0;
+              return (
+                <button
+                  key={p.id}
+                  onClick={() => handleSelect(p)}
+                  disabled={out}
+                  className="relative rounded-xl border border-white/[0.06] bg-surface-900 p-3 text-left transition-all active:scale-[0.97] active:bg-surface-800 sm:p-4 disabled:opacity-50"
+                >
+                  <p className="pr-7 text-sm leading-snug font-medium text-zinc-100">{p.name}</p>
+                  <p className="mt-0.5 truncate text-[11px] text-zinc-500">
+                    {p.category}
+                    {p.tracksStock ? ` · Stock ${p.stock}` : ""}
+                  </p>
+                  <div className="mt-2 flex items-center justify-between gap-2 sm:mt-3">
+                    <p className="text-lg font-semibold tabular-nums text-accent-400">
+                      {fmtMoney(p.price)}
+                    </p>
+                    {p.tracksStock && out && (
+                      <span className="text-[10px] font-medium text-red-400">Agotado</span>
+                    )}
+                  </div>
+                </button>
+              );
+            })}
           </div>
         )}
 

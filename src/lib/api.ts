@@ -56,6 +56,14 @@ export const api = {
   setProductActive: (id: number, active: boolean) =>
     invoke<void>("set_product_active", { id, active }),
   deleteProduct: (id: number) => invoke<void>("delete_product", { id }),
+  estimateProduction: (productId: number) =>
+    invoke<import("./types").ProductionEstimate>("estimate_production", { productId }),
+  produceStock: (input: { productId: number; quantity: number; note?: string | null }) =>
+    invoke<import("./types").Production>("produce_stock", { input }),
+  adjustProductStock: (input: { productId: number; change: number; reason: string }) =>
+    invoke<Product>("adjust_product_stock", { input }),
+  listProductions: (limit?: number) =>
+    invoke<import("./types").Production[]>("list_productions", { limit }),
 
   // Sales
   createSale: (input: CreateSaleInput) => invoke<Sale>("create_sale", { input }),

@@ -52,11 +52,17 @@ export default function Venta() {
 
   const toast = useToast();
 
+  const reloadProducts = useCallback(async () => {
+    try {
+      setProducts(await api.listProducts(false));
+    } catch (e) {
+      toast("error", errMsg(e));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   useEffect(() => {
-    api
-      .listProducts(false)
-      .then(setProducts)
-      .catch((e) => toast("error", errMsg(e)));
+    reloadProducts();
     loadCreditSales();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -102,8 +108,17 @@ export default function Venta() {
   const totalQty = cartLines.reduce((acc, l) => acc + l.qty, 0);
 
   const addToCart = useCallback((id: number) => {
-    setCart((c) => ({ ...c, [id]: (c[id] ?? 0) + 1 }));
-  }, []);
+    setCart((c) => {
+      const prod = products?.find((p) => p.id === id);
+      const next = (c[id] ?? 0) + 1;
+      if (prod?.tracksStock && next > prod.stock) {
+        toast("error", `Sin stock suficiente de "${prod.name}" (disponible ${prod.stock})`);
+        return c;
+      }
+      return { ...c, [id]: next };
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [products]);
 
   const setQty = useCallback((id: number, qty: number) => {
     setCart((c) => {
@@ -127,6 +142,7 @@ export default function Venta() {
       setCart({});
       setNote("");
       setCartOpen(false);
+      await reloadProducts();
     } catch (e) {
       toast("error", errMsg(e));
     } finally {
@@ -175,6 +191,7 @@ export default function Venta() {
       setCreditEditorOpen(false);
       setCreditForm(emptyCreditForm);
       await loadCreditSales();
+      await reloadProducts();
     } catch (e) {
       toast("error", errMsg(e));
     } finally {
@@ -300,15 +317,19 @@ export default function Venta() {
                 <div className="grid grid-cols-2 gap-2.5 sm:gap-3 lg:grid-cols-3 2xl:grid-cols-4">
                   {filtered.map((p) => {
                     const inCart = cart[p.id] ?? 0;
+                    const outOfStock = p.tracksStock && p.stock <= 0;
                     return (
                       <button
                         key={p.id}
                         onClick={() => addToCart(p.id)}
+                        disabled={outOfStock}
                         className={cn(
                           "relative rounded-xl border bg-surface-900 p-3 text-left transition-all active:scale-[0.97] active:bg-surface-800 sm:p-4",
-                          inCart > 0
-                            ? "border-accent-500/50 ring-1 ring-accent-500/20"
-                            : "border-white/[0.06] hover:border-accent-500/30 hover:bg-surface-800",
+                          outOfStock
+                            ? "border-white/[0.04] opacity-50"
+                            : inCart > 0
+                              ? "border-accent-500/50 ring-1 ring-accent-500/20"
+                              : "border-white/[0.06] hover:border-accent-500/30 hover:bg-surface-800",
                         )}
                       >
                         {inCart > 0 && (
@@ -317,10 +338,21 @@ export default function Venta() {
                           </span>
                         )}
                         <p className="pr-7 text-sm leading-snug font-medium text-zinc-100">{p.name}</p>
-                        <p className="mt-0.5 truncate text-[11px] text-zinc-500">{p.category}</p>
-                        <p className="mt-2 text-lg font-semibold tabular-nums text-accent-400 sm:mt-3">
-                          {fmtMoney(p.price)}
+                        <p className="mt-0.5 truncate text-[11px] text-zinc-500">
+                          {p.category}
+                          {p.tracksStock ? ` · Stock ${p.stock}` : ""}
                         </p>
+                        <div className="mt-2 flex items-center justify-between gap-2 sm:mt-3">
+                          <p className="text-lg font-semibold tabular-nums text-accent-400">
+                            {fmtMoney(p.price)}
+                          </p>
+                          {p.tracksStock &&
+                            (outOfStock ? (
+                              <Badge tone="danger">Agotado</Badge>
+                            ) : p.stock <= (p.minStock > 0 ? p.minStock : 0) && p.minStock > 0 ? (
+                              <Badge tone="warn">{p.stock} u</Badge>
+                            ) : null)}
+                        </div>
                       </button>
 );
               })}

@@ -10,6 +10,7 @@ import {
 import { api } from "../lib/api";
 import type { Material, Product } from "../lib/types";
 import { errMsg, fmtMoney, fmtQty } from "../lib/format";
+import { compatibleUnits, convertQty, unitFamily } from "../lib/units";
 import {
   Badge,
   Button,
@@ -29,6 +30,7 @@ import {
 interface RecipeRow {
   materialId: number | null;
   quantity: string;
+  unit: string;
 }
 
 const emptyForm = {
@@ -36,6 +38,10 @@ const emptyForm = {
   category: "",
   price: "",
   active: true,
+  tracksStock: false,
+  stock: "",
+  minStock: "",
+  manualCost: "",
 };
 
 /* ---------- Combobox de materiales ---------- */
@@ -147,6 +153,13 @@ function CheckMark() {
   return <span className="ml-1.5 inline-block h-1.5 w-1.5 rounded-full bg-accent-400 align-middle" />;
 }
 
+/** Unidad de entrada por defecto: gramos para masa (más exacto por porción),
+ *  unidad de stock en los demás casos. */
+function defaultRecipeUnit(mat: Material | null | undefined): string {
+  if (!mat) return "g";
+  return unitFamily(mat.unit) === "mass" ? "g" : mat.unit;
+}
+
 /* ---------- Página ---------- */
 
 export default function Menu() {
@@ -206,23 +219,72 @@ export default function Menu() {
 
   const openEdit = (p: Product) => {
     setEditingId(p.id);
-    setForm({ name: p.name, category: p.category, price: String(p.price), active: p.active });
-    setRecipe(p.recipe.map((r) => ({ materialId: r.materialId, quantity: String(r.quantity) })));
+    setForm({
+      name: p.name,
+      category: p.category,
+      price: String(p.price),
+      active: p.active,
+      tracksStock: p.tracksStock ?? false,
+      stock: String(p.stock ?? 0),
+      minStock: String(p.minStock ?? 0),
+      manualCost: String(p.manualCost ?? 0),
+    });
+    setRecipe(
+      p.recipe.map((r) => {
+        const mat = materials.find((m) => m.id === r.materialId) ?? null;
+        const dispUnit = defaultRecipeUnit(mat);
+        const dispQty =
+          mat && dispUnit !== mat.unit
+            ? (convertQty(r.quantity, mat.unit, dispUnit) ?? r.quantity)
+            : r.quantity;
+        return {
+          materialId: r.materialId,
+          quantity: String(Math.round(dispQty * 1000) / 1000),
+          unit: dispUnit,
+        };
+      }),
+    );
     setEditorOpen(true);
+  };
+
+  /** Costo de una fila convertido a la unidad de stock del material. */
+  const rowStockQty = (row: RecipeRow): number | null => {
+    const mat = materials.find((m) => m.id === row.materialId);
+    if (!mat) return null;
+    const q = Number(row.quantity);
+    if (!(q > 0)) return null;
+    return convertQty(q, row.unit || mat.unit, mat.unit);
   };
 
   const recipeCost = useMemo(() => {
     return recipe.reduce((acc, row) => {
       const mat = materials.find((m) => m.id === row.materialId);
       if (!mat) return acc;
-      return acc + mat.costPerUnit * (Number(row.quantity) || 0);
+      const stockQty = rowStockQty(row);
+      if (stockQty === null) return acc;
+      return acc + mat.costPerUnit * stockQty;
     }, 0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recipe, materials]);
 
   const priceNum = Number(form.price) || 0;
   const margin =
     priceNum > 0 && recipeCost > 0 ? ((priceNum - recipeCost) / priceNum) * 100 : null;
   const profitPerUnit = Math.max(0, priceNum - recipeCost);
+
+  // El costo del producto por stock NACE de la receta: siempre es el costo
+  // de receta vigente. Solo si no hay receta (revendido) se usa costo manual.
+  const hasRecipe = recipe.length > 0;
+  const effectiveUnitCost = form.tracksStock
+    ? hasRecipe
+      ? recipeCost
+      : Number(form.manualCost) || 0
+    : recipeCost;
+  const stockMargin =
+    form.tracksStock && priceNum > 0 && effectiveUnitCost > 0
+      ? ((priceNum - effectiveUnitCost) / priceNum) * 100
+      : null;
+  const stockProfit = form.tracksStock ? Math.max(0, priceNum - effectiveUnitCost) : profitPerUnit;
 
   const saveProduct = async () => {
     if (!form.name.trim()) {
@@ -233,11 +295,24 @@ export default function Menu() {
       toast("error", "Ingresa un precio válido");
       return;
     }
+    if (form.tracksStock && !hasRecipe && !(Number(form.manualCost) >= 0 && form.manualCost !== "")) {
+      toast("error", "Sin receta: ingresa el costo fijo por unidad (puede ser 0)");
+      return;
+    }
+    // Convertir cada fila a la unidad de stock del material antes de guardar.
+    const converted: { materialId: number; quantity: number }[] = [];
     for (const r of recipe) {
-      if (r.materialId === null || !(Number(r.quantity) > 0)) {
+      const mat = materials.find((m) => m.id === r.materialId);
+      if (r.materialId === null || !mat || !(Number(r.quantity) > 0)) {
         toast("error", "Completa la receta: selecciona material y cantidad mayor a cero");
         return;
       }
+      const stockQty = convertQty(Number(r.quantity), r.unit || mat.unit, mat.unit);
+      if (stockQty === null || !(stockQty > 0)) {
+        toast("error", `Unidad incompatible para "${mat.name}"`);
+        return;
+      }
+      converted.push({ materialId: r.materialId, quantity: Math.round(stockQty * 100000) / 100000 });
     }
     setSaving(true);
     const payload = {
@@ -245,7 +320,12 @@ export default function Menu() {
       category: form.category.trim() || "General",
       price: Number(form.price),
       active: form.active,
-      recipe: recipe.map((r) => ({ materialId: r.materialId as number, quantity: Number(r.quantity) })),
+      recipe: converted,
+      tracksStock: form.tracksStock,
+      stock: editingId === null ? Number(form.stock) || 0 : 0,
+      minStock: form.tracksStock ? Number(form.minStock) || 0 : 0,
+      // Costo nace de la receta; solo manual cuando no hay receta.
+      manualCost: form.tracksStock ? (hasRecipe ? recipeCost : Number(form.manualCost) || 0) : 0,
     };
     try {
       if (editingId === null) await api.createProduct(payload);
@@ -347,12 +427,17 @@ export default function Menu() {
                       {p.name}
                     </p>
                     {!p.active && <Badge tone="zinc">Inactivo</Badge>}
+                    {p.tracksStock && <Badge tone="accent">Por stock</Badge>}
                   </div>
                   <p className="mt-0.5 truncate text-xs text-zinc-500">
                     {p.category} ·{" "}
+                    {p.tracksStock ? (
+                      <>Stock: {fmtQty(p.stock)} u{p.minStock > 0 ? ` · Mín ${fmtQty(p.minStock)}` : ""} · </>
+                    ) : null}
                     {p.recipe.length > 0
                       ? `${p.recipe.length} ingrediente${p.recipe.length > 1 ? "s" : ""}`
                       : "sin receta"}
+                    {p.tracksStock && p.recipe.length > 0 ? " · para producir" : ""}
                   </p>
                 </div>
                 <span className="text-sm font-semibold tabular-nums text-accent-400">
@@ -455,15 +540,80 @@ export default function Menu() {
           </label>
         </div>
 
+        <label className="flex items-center justify-between rounded-xl border border-accent-500/25 bg-accent-500/[0.06] px-4 py-3">
+          <span className="text-sm text-zinc-200">
+            Vender por stock
+            <span className="block text-[11px] font-normal text-zinc-500">
+              {form.tracksStock
+                ? "La venta descuenta unidades del producto. La receta solo se usa al producir."
+                : "La venta descuenta materiales de la receta en cada venta (flujo actual)."}
+            </span>
+          </span>
+          <Switch checked={form.tracksStock} onChange={(v) => setForm({ ...form, tracksStock: v })} />
+        </label>
+
+        {form.tracksStock && (
+          <div className="grid grid-cols-3 gap-4">
+            {editingId === null && (
+              <Field label="Stock inicial (u)" hint="Unidades ya elaboradas">
+                <Input
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={form.stock}
+                  onChange={(e) => setForm({ ...form, stock: e.target.value })}
+                  placeholder="0"
+                />
+              </Field>
+            )}
+            <Field label="Stock mínimo (u)" hint="Alerta cuando baje de aquí">
+              <Input
+                type="number"
+                min="0"
+                step="1"
+                value={form.minStock}
+                onChange={(e) => setForm({ ...form, minStock: e.target.value })}
+                placeholder="0"
+              />
+            </Field>
+            {!hasRecipe && (
+              <Field label="Costo fijo / unidad" hint="Solo sin receta (revendido)">
+                <Input
+                  type="number"
+                  min="0"
+                  step="any"
+                  value={form.manualCost}
+                  onChange={(e) => setForm({ ...form, manualCost: e.target.value })}
+                  placeholder="0.00"
+                />
+              </Field>
+            )}
+          </div>
+        )}
+
+        {form.tracksStock && hasRecipe && (
+          <p className="rounded-lg border border-accent-500/20 bg-accent-500/[0.06] px-3 py-2 text-xs text-accent-400/90">
+            Costo por unidad = costo de receta ({fmtMoney(recipeCost)}). Se calcula solo y se usa en ganancia, ventas y producción.
+          </p>
+        )}
+
+        {form.tracksStock && editingId !== null && (
+          <p className="rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2 text-xs text-zinc-500">
+            El stock se gestiona desde Producción (elaborar) o con ajustes manuales. Aquí solo puedes cambiar mínimo y receta.
+          </p>
+        )}
+
         <div className="space-y-2">
           <div className="flex items-center justify-between">
             <span className="text-xs font-medium tracking-wide text-zinc-400">
-              Receta · materiales por unidad elaborada
+              {form.tracksStock
+                ? "Receta para producción · no se descuenta en venta"
+                : "Receta · materiales por unidad vendida"}
             </span>
             <Button
               size="sm"
               variant="outline"
-              onClick={() => setRecipe([...recipe, { materialId: null, quantity: "" }])}
+              onClick={() => setRecipe([...recipe, { materialId: null, quantity: "", unit: "g" }])}
               disabled={materials.length === 0}
             >
               <Plus size={13} />
@@ -476,10 +626,16 @@ export default function Menu() {
               Primero registra materiales en la sección Materiales para poder armar recetas.
             </p>
           )}
+          <p className="text-[11px] text-zinc-600">
+            Puedes pesar en gramos aunque el material esté en libras: elige la unidad por ingrediente y se convierte solo al stock.
+          </p>
 
           {recipe.map((row, i) => {
             const mat = materials.find((m) => m.id === row.materialId) ?? null;
-            const lineCost = mat ? mat.costPerUnit * (Number(row.quantity) || 0) : null;
+            const stockQty = rowStockQty(row);
+            const lineCost = mat && stockQty !== null ? mat.costPerUnit * stockQty : null;
+            const units = mat ? compatibleUnits(mat.unit) : ["g", "kg", "lb", "oz", "ml", "L", "u"];
+            const showConv = mat && row.unit && row.unit !== mat.unit && stockQty !== null;
             return (
               <div
                 key={i}
@@ -491,7 +647,8 @@ export default function Menu() {
                     value={row.materialId}
                     onChange={(id) => {
                       const next = [...recipe];
-                      next[i] = { ...next[i], materialId: id };
+                      const m = materials.find((x) => x.id === id) ?? null;
+                      next[i] = { ...next[i], materialId: id, unit: defaultRecipeUnit(m) };
                       setRecipe(next);
                     }}
                   />
@@ -503,7 +660,7 @@ export default function Menu() {
                     <Trash2 size={14} />
                   </button>
                 </div>
-                <div className="mt-2 flex items-center gap-2 px-0.5">
+                <div className="mt-2 flex flex-wrap items-center gap-2 px-0.5">
                   <span className="text-[11px] text-zinc-500">Cantidad</span>
                   <Input
                     type="number"
@@ -518,7 +675,26 @@ export default function Menu() {
                       setRecipe(next);
                     }}
                   />
-                  <span className="w-7 text-[11px] text-zinc-400">{mat?.unit ?? "—"}</span>
+                  <select
+                    value={row.unit || mat?.unit || "g"}
+                    onChange={(e) => {
+                      const next = [...recipe];
+                      next[i] = { ...next[i], unit: e.target.value };
+                      setRecipe(next);
+                    }}
+                    className="h-8 rounded-lg border border-white/10 bg-surface-800 px-2 text-xs text-zinc-200 outline-none"
+                  >
+                    {units.map((u) => (
+                      <option key={u} value={u}>
+                        {u}
+                      </option>
+                    ))}
+                  </select>
+                  {mat && (
+                    <span className="text-[11px] text-zinc-600">
+                      stock en {mat.unit}
+                    </span>
+                  )}
                   <span className="ml-auto text-[11px] tabular-nums text-zinc-500">
                     Costo línea:{" "}
                     <strong className="font-medium text-zinc-300">
@@ -526,11 +702,16 @@ export default function Menu() {
                     </strong>
                   </span>
                 </div>
+                {showConv && mat && (
+                  <p className="mt-1 px-0.5 text-[11px] tabular-nums text-zinc-600">
+                    {row.quantity} {row.unit} = {fmtQty(stockQty ?? 0)} {mat.unit} de "{mat.name}"
+                  </p>
+                )}
               </div>
             );
           })}
 
-          {(recipeCost > 0 || margin !== null) && (
+          {(recipeCost > 0 || margin !== null) && !form.tracksStock && (
             <div className="flex items-center justify-between rounded-xl border border-white/[0.06] bg-surface-800 px-4 py-2.5 text-xs">
               <span className="text-zinc-400">
                 Costo de receta:{" "}
@@ -542,6 +723,22 @@ export default function Menu() {
               {margin !== null && (
                 <Badge tone={margin >= 30 ? "success" : margin >= 10 ? "warn" : "danger"}>
                   Margen {margin.toFixed(0)}%
+                </Badge>
+              )}
+            </div>
+          )}
+          {form.tracksStock && (
+            <div className="flex items-center justify-between rounded-xl border border-white/[0.06] bg-surface-800 px-4 py-2.5 text-xs">
+              <span className="text-zinc-400">
+                Costo unidad (de receta):{" "}
+                <strong className="text-zinc-100">{fmtMoney(effectiveUnitCost)}</strong>
+                <span className="mx-2 text-zinc-600">·</span>
+                Ganancia:{" "}
+                <strong className="text-accent-400">+{fmtMoney(stockProfit)}</strong> / unidad
+              </span>
+              {stockMargin !== null && (
+                <Badge tone={stockMargin >= 30 ? "success" : stockMargin >= 10 ? "warn" : "danger"}>
+                  Margen {stockMargin.toFixed(0)}%
                 </Badge>
               )}
             </div>

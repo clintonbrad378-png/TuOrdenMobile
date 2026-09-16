@@ -191,6 +191,31 @@ pub async fn dashboard_stats(state: State<'_, AppState>) -> Result<DashboardStat
         }
     }
 
+    let mut low_product_stock = Vec::new();
+    {
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, name, stock, min_stock FROM products
+                 WHERE tracks_stock = 1 AND min_stock > 0 AND stock <= min_stock
+                 ORDER BY CASE WHEN stock <= 0 THEN 0 ELSE 1 END, stock ASC
+                 LIMIT 10",
+            )
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map([], |r| {
+                Ok(LowProductStock {
+                    id: r.get(0)?,
+                    name: r.get(1)?,
+                    stock: r.get(2)?,
+                    min_stock: r.get(3)?,
+                })
+            })
+            .map_err(|e| e.to_string())?;
+        for row in rows {
+            low_product_stock.push(row.map_err(|e| e.to_string())?);
+        }
+    }
+
     let month_start = "date('now','localtime','start of month')";
     let (month_business_expenses, month_merma_expenses) =
         get_expenses_for_period(&conn, &format!("date(created_at) >= {month_start}"), &[])?;
@@ -219,6 +244,7 @@ pub async fn dashboard_stats(state: State<'_, AppState>) -> Result<DashboardStat
         sales_by_day,
         top_products,
         low_stock,
+        low_product_stock,
     })
 }
 

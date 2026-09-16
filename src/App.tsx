@@ -14,6 +14,7 @@ import Licencia from "./pages/Licencia";
 import Dashboard from "./pages/Dashboard";
 import Materiales from "./pages/Materiales";
 import Menu from "./pages/Menu";
+import Produccion from "./pages/Produccion";
 import Reportes from "./pages/Reportes";
 import Venta from "./pages/Venta";
 import Entradas from "./pages/Entradas";
@@ -56,6 +57,7 @@ function Shell() {
               <Route path="/venta" element={<Venta />} />
               <Route path="/historial" element={<Historial />} />
               <Route path="/menu" element={<Menu />} />
+              <Route path="/produccion" element={<Produccion />} />
               <Route path="/materiales" element={<Materiales />} />
               <Route path="/entradas" element={<Entradas />} />
               <Route path="/mermas" element={<Mermas />} />

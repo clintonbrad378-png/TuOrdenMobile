@@ -49,6 +49,10 @@ export interface Product {
   recipe: RecipeItem[];
   createdAt: string;
   updatedAt: string;
+  tracksStock: boolean;
+  stock: number;
+  minStock: number;
+  manualCost: number;
 }
 
 export interface RecipeItemInput {
@@ -62,6 +66,10 @@ export interface ProductInput {
   price: number;
   active: boolean;
   recipe: { materialId: number; quantity: number }[];
+  tracksStock: boolean;
+  stock: number;
+  minStock: number;
+  manualCost: number;
 }
 
 export interface Sale {
@@ -191,6 +199,13 @@ export interface LowStock {
   unit: string;
 }
 
+export interface LowProductStock {
+  id: number;
+  name: string;
+  stock: number;
+  minStock: number;
+}
+
 export interface DashboardStats {
   todayTotal: number;
   todayCount: number;
@@ -208,6 +223,7 @@ export interface DashboardStats {
   salesByDay: DayPoint[];
   topProducts: TopProduct[];
   lowStock: LowStock[];
+  lowProductStock: LowProductStock[];
 }
 
 export interface PaymentTotal {
@@ -312,4 +328,32 @@ export interface ListExpensesParams {
   category?: ExpenseCategory;
   from?: string;
   to?: string;
+}
+
+export interface Production {
+  id: number;
+  productId: number;
+  productName: string;
+  quantity: number;
+  unitCost: number;
+  totalMaterialCost: number;
+  note: string | null;
+  createdAt: string;
+}
+
+export interface ProductionEstimateItem {
+  materialId: number;
+  materialName: string;
+  unit: string;
+  stock: number;
+  requiredPerUnit: number;
+  maxUnits: number;
+}
+
+export interface ProductionEstimate {
+  productId: number;
+  productName: string;
+  maxUnits: number;
+  limitingMaterial: string | null;
+  items: ProductionEstimateItem[];
 }

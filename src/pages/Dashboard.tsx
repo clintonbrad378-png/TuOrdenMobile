@@ -104,7 +104,7 @@ export default function Dashboard() {
             hint={
               stats.todayTotal > 0
                 ? `Inversión ${fmtMoney(stats.todayInvestment)} · margen ${((stats.todayProfit / stats.todayTotal) * 100).toFixed(0)}%`
-                : "Según costo de recetas"
+                : "Según costo (receta o fijo)"
             }
             icon={<Coins size={18} />}
           />
@@ -187,22 +187,42 @@ export default function Dashboard() {
           <Card className="flex flex-col p-5">
             <div className="flex items-center justify-between">
               <h2 className="text-sm font-medium text-zinc-200">Alertas de stock</h2>
-              {stats.lowStock.length > 0 && (
+              {(stats.lowStock.length > 0 || (stats.lowProductStock ?? []).length > 0) && (
                 <Badge tone="warn">
                   <AlertTriangle size={11} />
-                  {stats.lowStock.length}
+                  {stats.lowStock.length + (stats.lowProductStock ?? []).length}
                 </Badge>
               )}
             </div>
             <div className="mt-3 flex-1 space-y-1.5 overflow-y-auto">
-              {stats.lowStock.length === 0 ? (
+              {stats.lowStock.length === 0 && (stats.lowProductStock ?? []).length === 0 ? (
                 <EmptyState
                   icon={<CheckCircle2 size={22} />}
                   title="Todo en orden"
-                  description="Ningún material está por debajo de su mínimo."
+                  description="Ningún material ni producto está por debajo de su mínimo."
                 />
               ) : (
-                stats.lowStock.map((m) => (
+                <>
+                  {(stats.lowProductStock ?? []).map((m) => (
+                    <button
+                      key={`p-${m.id}`}
+                      onClick={() => navigate("/produccion")}
+                      className="flex w-full items-center justify-between gap-3 rounded-xl border border-accent-500/20 bg-accent-500/[0.04] px-3.5 py-2.5 text-left transition-colors hover:bg-accent-500/[0.08]"
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate text-sm text-zinc-200">{m.name}</p>
+                        <p className="text-[11px] text-zinc-500">
+                          Producto · Mínimo: {fmtQty(m.minStock)} u
+                        </p>
+                      </div>
+                      {m.stock <= 0 ? (
+                        <Badge tone="danger">Agotado</Badge>
+                      ) : (
+                        <Badge tone="warn">{fmtQty(m.stock)} u</Badge>
+                      )}
+                    </button>
+                  ))}
+                  {stats.lowStock.map((m) => (
                   <button
                     key={m.id}
                     onClick={() => navigate("/materiales")}
@@ -221,8 +241,9 @@ export default function Dashboard() {
                         {fmtQty(m.stock)} {m.unit}
                       </Badge>
                     )}
-                  </button>
-                ))
+                    </button>
+                  ))}
+                </>
               )}
             </div>
           </Card>

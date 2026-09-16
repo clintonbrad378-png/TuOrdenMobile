@@ -371,16 +371,58 @@ pub async fn internal_consumption(
 
     let conn = state.db.lock().map_err(|_| "Error interno")?;
 
-    let mut stmt = conn
-        .prepare(
-            "SELECT material_id, quantity FROM product_recipes WHERE product_id = ?1",
+    // Si el producto se vende por stock, el consumo interno descuenta unidades
+    // del producto terminado, no los materiales.
+    let tracks: i64 = conn
+        .query_row(
+            "SELECT tracks_stock FROM products WHERE id = ?1",
+            params![input.product_id],
+            |r| r.get(0),
+        )
+        .optional()
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "Producto no encontrado".to_string())?;
+    if tracks != 0 {
+        let stock: f64 = conn
+            .query_row(
+                "SELECT stock FROM products WHERE id = ?1",
+                params![input.product_id],
+                |r| r.get(0),
+            )
+            .map_err(|e| e.to_string())?;
+        let need = input.quantity as f64;
+        if stock < need {
+            return Err(format!(
+                "Stock insuficiente del producto (disponible: {}, requerido: {})",
+                fmt_qty(stock),
+                fmt_qty(need)
+            ));
+        }
+        conn.execute(
+            "UPDATE products SET stock = stock - ?1, updated_at = datetime('now','localtime') WHERE id = ?2",
+            params![need, input.product_id],
         )
         .map_err(|e| e.to_string())?;
-    let recipe_rows = stmt
-        .query_map(params![input.product_id], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, f64>(1)?)))
-        .map_err(|e| e.to_string())?
-        .collect::<Result<Vec<_>, _>>()
+        conn.execute(
+            "INSERT INTO product_stock_movements (product_id, change, reason) VALUES (?1, ?2, 'consumo_interno')",
+            params![input.product_id, -need],
+        )
         .map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+
+    let recipe_rows: Vec<(i64, f64)> = {
+        let mut stmt = conn
+            .prepare("SELECT material_id, quantity FROM recipe_items WHERE product_id = ?1")
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map(params![input.product_id], |r| {
+                Ok((r.get::<_, i64>(0)?, r.get::<_, f64>(1)?))
+            })
+            .map_err(|e| e.to_string())?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())?
+    };
 
     if recipe_rows.is_empty() {
         return Err("El producto no tiene receta definida".into());

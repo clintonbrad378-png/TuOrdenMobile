@@ -163,7 +163,7 @@ export default function Historial() {
     setDeleting(true);
     try {
       await api.deleteSale(deleteTarget.id);
-      toast("success", `Venta #${deleteTarget.id} eliminada · materiales devueltos al stock`);
+      toast("success", `Venta #${deleteTarget.id} eliminada · stock devuelto`);
       setDeleteTarget(null);
       setDetail(null);
       await load();
@@ -419,7 +419,7 @@ export default function Historial() {
         message={
           <>
             Se eliminará la venta de <strong>{deleteTarget && fmtMoney(deleteTarget.total)}</strong> y
-            los materiales descontados <strong>volverán al stock</strong>. Esta acción no se puede deshacer.
+            el stock descontado (materiales o productos) <strong>volverá</strong>. Esta acción no se puede deshacer.
           </>
         }
       />

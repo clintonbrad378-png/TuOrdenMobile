@@ -72,7 +72,16 @@ export async function buildPanelSnapshot(): Promise<PanelSnapshot> {
       profit: includeCosts ? p.profit : 0,
     })),
     materials: mats,
-    low_stock: stats.lowStock,
+    low_stock: [
+      ...stats.lowStock,
+      ...(stats.lowProductStock ?? []).map((p) => ({
+        id: 1000000 + p.id,
+        name: `${p.name} (producto)`,
+        stock: p.stock,
+        minStock: p.minStock,
+        unit: "u",
+      })),
+    ],
     sales_by_day: stats.salesByDay,
     by_payment: report.byPayment,
     include_costs: includeCosts,

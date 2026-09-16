@@ -63,6 +63,10 @@ pub struct Product {
     pub recipe: Vec<RecipeItem>,
     pub created_at: String,
     pub updated_at: String,
+    pub tracks_stock: bool,
+    pub stock: f64,
+    pub min_stock: f64,
+    pub manual_cost: f64,
 }
 
 #[derive(Deserialize)]
@@ -80,6 +84,14 @@ pub struct ProductInput {
     pub price: f64,
     pub active: bool,
     pub recipe: Vec<RecipeItemInput>,
+    #[serde(default)]
+    pub tracks_stock: bool,
+    #[serde(default)]
+    pub stock: f64,
+    #[serde(default)]
+    pub min_stock: f64,
+    #[serde(default)]
+    pub manual_cost: f64,
 }
 
 #[derive(Serialize)]
@@ -260,6 +272,15 @@ pub struct LowStock {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct LowProductStock {
+    pub id: i64,
+    pub name: String,
+    pub stock: f64,
+    pub min_stock: f64,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DashboardStats {
     pub today_total: f64,
     pub today_count: i64,
@@ -277,6 +298,7 @@ pub struct DashboardStats {
     pub sales_by_day: Vec<DayPoint>,
     pub top_products: Vec<TopProduct>,
     pub low_stock: Vec<LowStock>,
+    pub low_product_stock: Vec<LowProductStock>,
 }
 
 #[derive(Serialize)]
@@ -356,4 +378,54 @@ pub struct NetProfitData {
     pub merma_expenses: f64,
     pub total_expenses: f64,
     pub net_profit: f64,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Production {
+    pub id: i64,
+    pub product_id: i64,
+    pub product_name: String,
+    pub quantity: f64,
+    pub unit_cost: f64,
+    pub total_material_cost: f64,
+    pub note: Option<String>,
+    pub created_at: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProduceStockInput {
+    pub product_id: i64,
+    pub quantity: f64,
+    pub note: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AdjustProductStockInput {
+    pub product_id: i64,
+    pub change: f64,
+    pub reason: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProductionEstimateItem {
+    pub material_id: i64,
+    pub material_name: String,
+    pub unit: String,
+    pub stock: f64,
+    pub required_per_unit: f64,
+    pub max_units: i64,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProductionEstimate {
+    pub product_id: i64,
+    pub product_name: String,
+    pub max_units: i64,
+    pub limiting_material: Option<String>,
+    pub items: Vec<ProductionEstimateItem>,
 }

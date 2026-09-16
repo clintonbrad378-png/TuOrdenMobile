@@ -1,0 +1,212 @@
+name: iOS CI (sin cuenta Apple)
+
+# Compila la app para iOS sin necesidad de cuenta Apple Developer.
+# - Job simulator: garantizado, valida que Rust + frontend compilan para iOS.
+# - Job unsigned-ipa: intenta generar un .ipa SIN FIRMAR para sideloading
+#   manual (AltStore / Sideloadly / SideStore con Apple ID gratuito, 7 días).
+#   Ese .ipa NO sirve para App Store ni TestFlight.
+#
+# Cuando tengas cuenta Developer ($99/año) se añade un tercer job firmado
+# con certificado + provisioning profile (ver plan en issue/PR).
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  workflow_dispatch:
+
+jobs:
+  build-ios-simulator:
+    name: Build iOS Simulator (debug, sin firma)
+    runs-on: macos-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install Rust toolchain (iOS targets)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios,x86_64-apple-ios,aarch64-apple-ios-sim
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+          cache-on-failure: true
+
+      - name: Xcode info
+        run: |
+          xcodebuild -version
+          xcodebuild -showsdks | head -30
+
+      - name: Install CocoaPods
+        run: |
+          if ! command -v pod >/dev/null 2>&1; then
+            brew install cocoapods
+          else
+            echo "CocoaPods ya instalado: $(pod --version)"
+          fi
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version "^2" --locked
+
+      - name: Initialize iOS project
+        # Se regenera en cada run: gen/apple es generado, no se commitea.
+        run: cargo tauri ios init --ci
+
+      - name: Build iOS Simulator (debug)
+        # Target corto según CLI v2: aarch64-sim (simulador Apple Silicon).
+        # No requiere firma.
+        run: cargo tauri ios build --target aarch64-sim --debug --ci
+
+      - name: Find built .app
+        run: |
+          echo "=== Buscando .app ==="
+          find src-tauri/gen/apple/build ~/Library/Developer/Xcode/DerivedData -name "*.app" -type d 2>/dev/null | head -20 || true
+
+      - name: Upload simulator .app
+        uses: actions/upload-artifact@v4
+        with:
+          name: tuorden-ios-simulator-app
+          path: |
+            src-tauri/gen/apple/build/**/*.app
+          if-no-files-found: warn
+          retention-days: 7
+
+  build-ios-unsigned:
+    name: Build IPA sin firma (sideloading)
+    runs-on: macos-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install Rust toolchain (iOS targets)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios,x86_64-apple-ios,aarch64-apple-ios-sim
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+          cache-on-failure: true
+
+      - name: Install CocoaPods
+        run: |
+          if ! command -v pod >/dev/null 2>&1; then
+            brew install cocoapods
+          else
+            echo "CocoaPods ya instalado: $(pod --version)"
+          fi
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version "^2" --locked
+
+      - name: Initialize iOS project
+        run: cargo tauri ios init --ci
+
+      - name: Disable code signing in Xcode project
+        # Sin cuenta Apple no hay identidad de firma. Se parchea el proyecto
+        # generado para permitir compilar el .app sin firmar.
+        run: |
+          PBX=$(find src-tauri/gen/apple -maxdepth 2 -name "project.pbxproj" | head -n 1)
+          if [ -z "$PBX" ]; then
+            echo "::warning::No se encontró project.pbxproj, se omite el parche"
+            exit 0
+          fi
+          echo "Parcheando: $PBX"
+          sed -i '' 's/CODE_SIGN_STYLE = Automatic;/CODE_SIGN_STYLE = Manual;/g' "$PBX" || true
+          # Vacía identidades/equipos que Xcode haya puesto por defecto
+          sed -i '' 's/CODE_SIGN_IDENTITY = "Apple Development";/CODE_SIGN_IDENTITY = "";/g' "$PBX" || true
+          sed -i '' 's/CODE_SIGN_IDENTITY = "iPhone Developer";/CODE_SIGN_IDENTITY = "";/g' "$PBX" || true
+          sed -i '' 's/DEVELOPMENT_TEAM = [^;]*;/DEVELOPMENT_TEAM = "";/g' "$PBX" || true
+          echo "Parche aplicado"
+
+      - name: Build iOS device .app (sin firma)
+        # El export a .ipa fallará sin firma (esperado). Lo importante es que
+        # quede el .app compilado para empaquetarlo a mano abajo.
+        run: |
+          cargo tauri ios build --target aarch64 --debug --ci -- CODE_SIGNING_ALLOWED=NO CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO 2>&1 | tee ios-build.log || {
+            echo "::warning::El build con Tauri falló en el export (esperado sin firma). Buscando .app igualmente..."
+          }
+          echo "=== Últimas 30 líneas del build ==="
+          tail -30 ios-build.log || true
+
+      - name: Package unsigned IPA
+        run: |
+          set -u
+          echo "=== Buscando .app compilada ==="
+          APP_PATH=$(find src-tauri/gen/apple/build ~/Library/Developer/Xcode/DerivedData -name "TuOrden.app" -type d 2>/dev/null | grep -v Intermediates | head -n 1 || true)
+          if [ -z "${APP_PATH:-}" ]; then
+            # Fallback: cualquier .app que no sea de ejemplo
+            APP_PATH=$(find src-tauri/gen/apple/build ~/Library/Developer/Xcode/DerivedData -name "*.app" -type d 2>/dev/null | grep -v Intermediates | head -n 1 || true)
+          fi
+          if [ -z "${APP_PATH:-}" ] || [ ! -d "$APP_PATH" ]; then
+            echo "::error::No se encontró ningún .app. Revisa ios-build.log"
+            find src-tauri/gen/apple/build -maxdepth 4 2>/dev/null || true
+            exit 1
+          fi
+          echo "Usando .app: $APP_PATH"
+          mkdir -p ios-artifacts/Payload
+          cp -R "$APP_PATH" ios-artifacts/Payload/
+          # Permisos estándar para que el sideload no falle
+          APP_NAME=$(basename "$APP_PATH")
+          chmod -R 755 "ios-artifacts/Payload/$APP_NAME"
+          find "ios-artifacts/Payload/$APP_NAME" -type f -exec chmod 644 {} \; || true
+          # El binario principal debe ser ejecutable
+          BIN="ios-artifacts/Payload/$APP_NAME/$(basename "$APP_NAME" .app)"
+          if [ -f "$BIN" ]; then
+            chmod 755 "$BIN"
+          fi
+          find "ios-artifacts/Payload/$APP_NAME" -name "*.dylib" -exec chmod 755 {} \; || true
+          (cd ios-artifacts && zip -r -q "TuOrden-iOS-unsigned.ipa" Payload/)
+          rm -rf ios-artifacts/Payload
+          ls -lh ios-artifacts/
+          echo "=== Contenido IPA ==="
+          unzip -l ios-artifacts/TuOrden-iOS-unsigned.ipa | head -20
+
+      - name: Upload unsigned IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: tuorden-ios-unsigned-ipa
+          path: ios-artifacts/TuOrden-iOS-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "## 🍎 iOS sin firma" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "IPA **sin firmar** generado como artifact \`tuorden-ios-unsigned-ipa\`." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Para probarlo en un iPhone físico necesitas re-firmarlo en tu PC con **Sideloadly / AltStore / SideStore** usando tu Apple ID gratuito (certificado de 7 días). No funciona para App Store ni TestFlight." >> $GITHUB_STEP_SUMMARY

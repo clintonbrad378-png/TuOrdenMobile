@@ -31,6 +31,233 @@ struct LineRow {
     unit_cost: f64,
 }
 
+struct ProductSaleInfo {
+    id: i64,
+    name: String,
+    price: f64,
+    tracks_stock: bool,
+    stock: f64,
+    manual_cost: f64,
+}
+
+fn load_sale_products(
+    tx: &rusqlite::Transaction,
+    items: &[SaleItemInput],
+) -> Result<Vec<(SaleItemInput, ProductSaleInfo)>, String> {
+    let mut out = Vec::with_capacity(items.len());
+    for item in items {
+        if item.quantity <= 0 {
+            return Err("Las cantidades deben ser mayores a cero".into());
+        }
+        let row: Option<(String, f64, i64, f64, f64)> = tx
+            .query_row(
+                "SELECT name, price, tracks_stock, stock, manual_cost FROM products WHERE id = ?1 AND active = 1",
+                params![item.product_id],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+            )
+            .optional()
+            .map_err(|e| e.to_string())?;
+        let (name, price, tracks, stock, manual_cost) = row
+            .ok_or_else(|| format!("Producto no disponible (id {})", item.product_id))?;
+        out.push((
+            SaleItemInput {
+                product_id: item.product_id,
+                quantity: item.quantity,
+            },
+            ProductSaleInfo {
+                id: item.product_id,
+                name,
+                price,
+                tracks_stock: tracks != 0,
+                stock,
+                manual_cost,
+            },
+        ));
+    }
+    Ok(out)
+}
+
+fn recipe_unit_cost(tx: &rusqlite::Transaction, product_id: i64) -> Result<f64, String> {
+    tx.query_row(
+        "SELECT COALESCE(SUM(ri.quantity * m.cost_per_unit), 0)
+         FROM recipe_items ri JOIN materials m ON m.id = ri.material_id
+         WHERE ri.product_id = ?1",
+        params![product_id],
+        |r| r.get(0),
+    )
+    .map_err(|e| e.to_string())
+}
+
+fn recipe_count(tx: &rusqlite::Transaction, product_id: i64) -> Result<i64, String> {
+    tx.query_row(
+        "SELECT COUNT(*) FROM recipe_items WHERE product_id = ?1",
+        params![product_id],
+        |r| r.get(0),
+    )
+    .map_err(|e| e.to_string())
+}
+
+/// Costo por unidad para ventas y reportes: SIEMPRE nace de la receta cuando
+/// el producto tiene receta (directo o por stock). Solo sin receta se usa el
+/// costo manual (producto revendido por stock).
+fn sale_unit_cost(
+    tx: &rusqlite::Transaction,
+    product_id: i64,
+    manual_cost: f64,
+) -> Result<f64, String> {
+    if recipe_count(tx, product_id)? > 0 {
+        recipe_unit_cost(tx, product_id)
+    } else {
+        Ok(manual_cost)
+    }
+}
+
+fn collect_material_needs(
+    tx: &rusqlite::Transaction,
+    loaded: &[(SaleItemInput, ProductSaleInfo)],
+) -> Result<HashMap<i64, f64>, String> {
+    let mut needs: HashMap<i64, f64> = HashMap::new();
+    let mut stmt = tx
+        .prepare("SELECT material_id, quantity FROM recipe_items WHERE product_id = ?1")
+        .map_err(|e| e.to_string())?;
+    for (item, info) in loaded {
+        if info.tracks_stock {
+            continue;
+        }
+        let rows = stmt
+            .query_map(params![item.product_id], |r| {
+                Ok((r.get::<_, i64>(0)?, r.get::<_, f64>(1)?))
+            })
+            .map_err(|e| e.to_string())?;
+        for row in rows {
+            let (material_id, qty_per_unit) = row.map_err(|e| e.to_string())?;
+            *needs.entry(material_id).or_insert(0.0) += qty_per_unit * item.quantity as f64;
+        }
+    }
+    Ok(needs)
+}
+
+fn verify_material_stock(
+    tx: &rusqlite::Transaction,
+    needs: &HashMap<i64, f64>,
+) -> Result<(), String> {
+    if needs.is_empty() {
+        return Ok(());
+    }
+    let mut shortages: Vec<String> = Vec::new();
+    let mut mat_stmt = tx
+        .prepare("SELECT name, stock FROM materials WHERE id = ?1")
+        .map_err(|e| e.to_string())?;
+    for (material_id, needed) in needs {
+        let (mname, stock): (String, f64) = mat_stmt
+            .query_row(params![material_id], |r| Ok((r.get(0)?, r.get(1)?)))
+            .optional()
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| "Material no encontrado en la receta".to_string())?;
+        if stock < *needed {
+            shortages.push(format!(
+                "{}: necesitas {}, disponible {}",
+                mname,
+                crate::db::fmt_qty(*needed),
+                crate::db::fmt_qty(stock)
+            ));
+        }
+    }
+    if !shortages.is_empty() {
+        return Err(format!("Stock insuficiente · {}", shortages.join("  ·  ")));
+    }
+    Ok(())
+}
+
+fn verify_product_stock(loaded: &[(SaleItemInput, ProductSaleInfo)]) -> Result<(), String> {
+    let mut shortages: Vec<String> = Vec::new();
+    let mut by_product: HashMap<i64, (String, f64, f64)> = HashMap::new();
+    for (item, info) in loaded {
+        if !info.tracks_stock {
+            continue;
+        }
+        let e = by_product
+            .entry(info.id)
+            .or_insert((info.name.clone(), info.stock, 0.0));
+        e.2 += item.quantity as f64;
+    }
+    for (_id, (name, stock, needed)) in by_product {
+        if stock < needed {
+            shortages.push(format!(
+                "{}: necesitas {}, disponible {}",
+                name,
+                crate::db::fmt_qty(needed),
+                crate::db::fmt_qty(stock)
+            ));
+        }
+    }
+    if !shortages.is_empty() {
+        return Err(format!(
+            "Stock de producto insuficiente · {}",
+            shortages.join("  ·  ")
+        ));
+    }
+    Ok(())
+}
+
+fn deduct_materials(
+    tx: &rusqlite::Transaction,
+    needs: &HashMap<i64, f64>,
+    reason: &str,
+    reference_id: i64,
+) -> Result<(), String> {
+    if needs.is_empty() {
+        return Ok(());
+    }
+    let mut upd = tx
+        .prepare("UPDATE materials SET stock = stock - ?1, updated_at = datetime('now','localtime') WHERE id = ?2")
+        .map_err(|e| e.to_string())?;
+    let mut mov = tx
+        .prepare(
+            "INSERT INTO stock_movements (material_id, change, reason, reference_id) VALUES (?1, ?2, ?3, ?4)",
+        )
+        .map_err(|e| e.to_string())?;
+    for (material_id, needed) in needs {
+        upd.execute(params![needed, material_id])
+            .map_err(|e| e.to_string())?;
+        mov.execute(params![material_id, -needed, reason, reference_id])
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+fn deduct_product_stock(
+    tx: &rusqlite::Transaction,
+    loaded: &[(SaleItemInput, ProductSaleInfo)],
+    reason: &str,
+    reference_id: i64,
+) -> Result<(), String> {
+    let mut by_product: HashMap<i64, f64> = HashMap::new();
+    for (item, info) in loaded {
+        if info.tracks_stock {
+            *by_product.entry(info.id).or_insert(0.0) += item.quantity as f64;
+        }
+    }
+    if by_product.is_empty() {
+        return Ok(());
+    }
+    let mut upd = tx
+        .prepare("UPDATE products SET stock = stock - ?1, updated_at = datetime('now','localtime') WHERE id = ?2")
+        .map_err(|e| e.to_string())?;
+    let mut mov = tx
+        .prepare(
+            "INSERT INTO product_stock_movements (product_id, change, reason, reference_id) VALUES (?1, ?2, ?3, ?4)",
+        )
+        .map_err(|e| e.to_string())?;
+    for (product_id, needed) in by_product {
+        upd.execute(params![needed, product_id])
+            .map_err(|e| e.to_string())?;
+        mov.execute(params![product_id, -needed, reason, reference_id])
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn create_sale(
     state: State<'_, AppState>,
@@ -44,96 +271,28 @@ pub async fn create_sale(
     let conn = state.db.lock().map_err(|_| "Error interno")?;
     let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
 
-    // Aggregate material needs and build sale lines from DB prices.
-    let mut needs: HashMap<i64, f64> = HashMap::new();
-    let mut lines: Vec<LineRow> = Vec::with_capacity(input.items.len());
+    let loaded = load_sale_products(&tx, &input.items)?;
+
+    let mut lines: Vec<LineRow> = Vec::with_capacity(loaded.len());
     let mut total = 0f64;
-
-    let mut prod_stmt = tx
-        .prepare("SELECT name, price FROM products WHERE id = ?1 AND active = 1")
-        .map_err(|e| e.to_string())?;
-    for item in &input.items {
-        if item.quantity <= 0 {
-            return Err("Las cantidades deben ser mayores a cero".into());
-        }
-        let (name, price): (String, f64) = prod_stmt
-            .query_row(params![item.product_id], |r| Ok((r.get(0)?, r.get(1)?)))
-            .optional()
-            .map_err(|e| e.to_string())?
-            .ok_or_else(|| format!("Producto no disponible (id {})", item.product_id))?;
-
-        let subtotal = price * item.quantity as f64;
+    for (item, info) in &loaded {
+        let subtotal = info.price * item.quantity as f64;
         total += subtotal;
+        let unit_cost = sale_unit_cost(&tx, info.id, info.manual_cost)?;
         lines.push(LineRow {
-            name,
-            price,
+            name: info.name.clone(),
+            price: info.price,
             qty: item.quantity,
             subtotal,
-            unit_cost: 0.0,
+            unit_cost,
         });
     }
-    drop(prod_stmt);
 
-    // Snapshot the recipe cost per product at the moment of the sale.
-    {
-        let mut cost_stmt = tx
-            .prepare(
-                "SELECT COALESCE(SUM(ri.quantity * m.cost_per_unit), 0)
-                 FROM recipe_items ri JOIN materials m ON m.id = ri.material_id
-                 WHERE ri.product_id = ?1",
-            )
-            .map_err(|e| e.to_string())?;
-        for (item, line) in input.items.iter().zip(lines.iter_mut()) {
-            line.unit_cost = cost_stmt
-                .query_row(params![item.product_id], |r| r.get(0))
-                .map_err(|e| e.to_string())?;
-        }
-    }
+    let needs = collect_material_needs(&tx, &loaded)?;
 
-    let mut recipe_stmt = tx
-        .prepare("SELECT material_id, quantity FROM recipe_items WHERE product_id = ?1")
-        .map_err(|e| e.to_string())?;
-    for item in &input.items {
-        let rows = recipe_stmt
-            .query_map(params![item.product_id], |r| {
-                Ok((r.get::<_, i64>(0)?, r.get::<_, f64>(1)?))
-            })
-            .map_err(|e| e.to_string())?;
-        for row in rows {
-            let (material_id, qty_per_unit) = row.map_err(|e| e.to_string())?;
-            *needs.entry(material_id).or_insert(0.0) += qty_per_unit * item.quantity as f64;
-        }
-    }
-    drop(recipe_stmt);
-
-    // Verify stock before touching anything.
-    let mut shortages: Vec<String> = Vec::new();
-    {
-        let mut mat_stmt = tx
-            .prepare("SELECT name, stock FROM materials WHERE id = ?1")
-            .map_err(|e| e.to_string())?;
-        for (material_id, needed) in &needs {
-            let (mname, stock): (String, f64) = mat_stmt
-                .query_row(params![material_id], |r| Ok((r.get(0)?, r.get(1)?)))
-                .optional()
-                .map_err(|e| e.to_string())?
-                .ok_or_else(|| "Material no encontrado en la receta".to_string())?;
-            if stock < *needed {
-                shortages.push(format!(
-                    "{}: necesitas {}, disponible {}",
-                    mname,
-                    crate::db::fmt_qty(*needed),
-                    crate::db::fmt_qty(stock)
-                ));
-            }
-        }
-    }
-    if !shortages.is_empty() {
-        return Err(format!(
-            "Stock insuficiente · {}",
-            shortages.join("  ·  ")
-        ));
-    }
+    // Verify stock before touching anything (materiales + productos terminados).
+    verify_product_stock(&loaded)?;
+    verify_material_stock(&tx, &needs)?;
 
     // Insert sale header.
     let (sale_id, created_at): (i64, String) = tx
@@ -144,23 +303,8 @@ pub async fn create_sale(
         )
         .map_err(|e| e.to_string())?;
 
-    // Deduct stock + record movements.
-    {
-        let mut upd = tx
-            .prepare("UPDATE materials SET stock = stock - ?1, updated_at = datetime('now','localtime') WHERE id = ?2")
-            .map_err(|e| e.to_string())?;
-        let mut mov = tx
-            .prepare(
-                "INSERT INTO stock_movements (material_id, change, reason, reference_id) VALUES (?1, ?2, 'venta', ?3)",
-            )
-            .map_err(|e| e.to_string())?;
-        for (material_id, needed) in &needs {
-            upd.execute(params![needed, material_id])
-                .map_err(|e| e.to_string())?;
-            mov.execute(params![material_id, -needed, sale_id])
-                .map_err(|e| e.to_string())?;
-        }
-    }
+    deduct_materials(&tx, &needs, "venta", sale_id)?;
+    deduct_product_stock(&tx, &loaded, "venta", sale_id)?;
 
     // Insert sale items snapshot.
     {
@@ -275,7 +419,7 @@ pub async fn get_sale(state: State<'_, AppState>, id: i64) -> Result<SaleDetail,
 }
 
 /// Devuelve al stock lo descontado por una venta, usando los movimientos
-/// registrados (exacto aunque la receta haya cambiado después).
+/// registrados (exacto aunque la receta o el modo hayan cambiado después).
 /// Debe llamarse dentro de una transacción ya abierta.
 fn restore_sale_stock(
     tx: &rusqlite::Transaction,
@@ -307,6 +451,36 @@ fn restore_sale_stock(
     drop(upd);
     tx.execute(
         "DELETE FROM stock_movements WHERE reason = 'venta' AND reference_id = ?1",
+        params![sale_id],
+    )
+    .map_err(|e| e.to_string())?;
+
+    // Restaurar stock de productos terminados (modo por stock).
+    let mut prestores: Vec<(i64, f64)> = Vec::new();
+    {
+        let mut stmt = tx
+            .prepare(
+                "SELECT product_id, COALESCE(SUM(change), 0) FROM product_stock_movements
+                 WHERE reason = 'venta' AND reference_id = ?1 GROUP BY product_id",
+            )
+            .map_err(|e| e.to_string())?;
+        let mut rows = stmt.query(params![sale_id]).map_err(|e| e.to_string())?;
+        while let Some(r) = rows.next().map_err(|e| e.to_string())? {
+            let product_id: i64 = r.get(0).map_err(|e| e.to_string())?;
+            let change: f64 = r.get(1).map_err(|e| e.to_string())?;
+            prestores.push((product_id, change));
+        }
+    }
+    let mut pupd = tx
+        .prepare("UPDATE products SET stock = stock - ?1, updated_at = datetime('now','localtime') WHERE id = ?2")
+        .map_err(|e| e.to_string())?;
+    for (product_id, change) in &prestores {
+        pupd.execute(params![change, product_id])
+            .map_err(|e| e.to_string())?;
+    }
+    drop(pupd);
+    tx.execute(
+        "DELETE FROM product_stock_movements WHERE reason = 'venta' AND reference_id = ?1",
         params![sale_id],
     )
     .map_err(|e| e.to_string())?;
@@ -363,106 +537,37 @@ pub async fn update_sale(
         .map_err(|e| e.to_string())?;
 
     // 2) Reconstruir igual que create_sale (precios y costos vigentes).
-    let mut needs: HashMap<i64, f64> = HashMap::new();
-    let mut lines: Vec<LineRow> = Vec::with_capacity(input.items.len());
-    let mut total = 0f64;
+    let sale_items: Vec<SaleItemInput> = input
+        .items
+        .iter()
+        .map(|i| SaleItemInput {
+            product_id: i.product_id,
+            quantity: i.quantity,
+        })
+        .collect();
+    let loaded = load_sale_products(&tx, &sale_items)?;
 
-    let mut prod_stmt = tx
-        .prepare("SELECT name, price FROM products WHERE id = ?1 AND active = 1")
-        .map_err(|e| e.to_string())?;
-    for item in &input.items {
-        if item.quantity <= 0 {
-            return Err("Las cantidades deben ser mayores a cero".into());
-        }
-        let (name, price): (String, f64) = prod_stmt
-            .query_row(params![item.product_id], |r| Ok((r.get(0)?, r.get(1)?)))
-            .optional()
-            .map_err(|e| e.to_string())?
-            .ok_or_else(|| format!("Producto no disponible (id {})", item.product_id))?;
-        let subtotal = price * item.quantity as f64;
+    let mut lines: Vec<LineRow> = Vec::with_capacity(loaded.len());
+    let mut total = 0f64;
+    for (item, info) in &loaded {
+        let subtotal = info.price * item.quantity as f64;
         total += subtotal;
+        let unit_cost = sale_unit_cost(&tx, info.id, info.manual_cost)?;
         lines.push(LineRow {
-            name,
-            price,
+            name: info.name.clone(),
+            price: info.price,
             qty: item.quantity,
             subtotal,
-            unit_cost: 0.0,
+            unit_cost,
         });
     }
-    drop(prod_stmt);
 
-    {
-        let mut cost_stmt = tx
-            .prepare(
-                "SELECT COALESCE(SUM(ri.quantity * m.cost_per_unit), 0)
-                 FROM recipe_items ri JOIN materials m ON m.id = ri.material_id
-                 WHERE ri.product_id = ?1",
-            )
-            .map_err(|e| e.to_string())?;
-        for (item, line) in input.items.iter().zip(lines.iter_mut()) {
-            line.unit_cost = cost_stmt
-                .query_row(params![item.product_id], |r| r.get(0))
-                .map_err(|e| e.to_string())?;
-        }
-    }
+    let needs = collect_material_needs(&tx, &loaded)?;
+    verify_product_stock(&loaded)?;
+    verify_material_stock(&tx, &needs)?;
 
-    let mut recipe_stmt = tx
-        .prepare("SELECT material_id, quantity FROM recipe_items WHERE product_id = ?1")
-        .map_err(|e| e.to_string())?;
-    for item in &input.items {
-        let rows = recipe_stmt
-            .query_map(params![item.product_id], |r| {
-                Ok((r.get::<_, i64>(0)?, r.get::<_, f64>(1)?))
-            })
-            .map_err(|e| e.to_string())?;
-        for row in rows {
-            let (material_id, qty_per_unit) = row.map_err(|e| e.to_string())?;
-            *needs.entry(material_id).or_insert(0.0) += qty_per_unit * item.quantity as f64;
-        }
-    }
-    drop(recipe_stmt);
-
-    let mut shortages: Vec<String> = Vec::new();
-    {
-        let mut mat_stmt = tx
-            .prepare("SELECT name, stock FROM materials WHERE id = ?1")
-            .map_err(|e| e.to_string())?;
-        for (material_id, needed) in &needs {
-            let (mname, stock): (String, f64) = mat_stmt
-                .query_row(params![material_id], |r| Ok((r.get(0)?, r.get(1)?)))
-                .optional()
-                .map_err(|e| e.to_string())?
-                .ok_or_else(|| "Material no encontrado en la receta".to_string())?;
-            if stock < *needed {
-                shortages.push(format!(
-                    "{}: necesitas {}, disponible {}",
-                    mname,
-                    crate::db::fmt_qty(*needed),
-                    crate::db::fmt_qty(stock)
-                ));
-            }
-        }
-    }
-    if !shortages.is_empty() {
-        return Err(format!("Stock insuficiente · {}", shortages.join("  ·  ")));
-    }
-
-    {
-        let mut upd = tx
-            .prepare("UPDATE materials SET stock = stock - ?1, updated_at = datetime('now','localtime') WHERE id = ?2")
-            .map_err(|e| e.to_string())?;
-        let mut mov = tx
-            .prepare(
-                "INSERT INTO stock_movements (material_id, change, reason, reference_id) VALUES (?1, ?2, 'venta', ?3)",
-            )
-            .map_err(|e| e.to_string())?;
-        for (material_id, needed) in &needs {
-            upd.execute(params![needed, material_id])
-                .map_err(|e| e.to_string())?;
-            mov.execute(params![material_id, -needed, input.id])
-                .map_err(|e| e.to_string())?;
-        }
-    }
+    deduct_materials(&tx, &needs, "venta", input.id)?;
+    deduct_product_stock(&tx, &loaded, "venta", input.id)?;
 
     {
         let mut ins = tx
@@ -524,93 +629,34 @@ pub async fn create_credit_sale(
     let conn = state.db.lock().map_err(|_| "Error interno")?;
     let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
 
-    let mut needs: HashMap<i64, f64> = HashMap::new();
-    let mut lines: Vec<CreditLineRow> = Vec::with_capacity(input.items.len());
+    let sale_items: Vec<SaleItemInput> = input
+        .items
+        .iter()
+        .map(|i| SaleItemInput {
+            product_id: i.product_id,
+            quantity: i.quantity,
+        })
+        .collect();
+    let loaded = load_sale_products(&tx, &sale_items)?;
+
+    let mut lines: Vec<CreditLineRow> = Vec::with_capacity(loaded.len());
     let mut total = 0f64;
-
-    let mut prod_stmt = tx
-        .prepare("SELECT name, price FROM products WHERE id = ?1 AND active = 1")
-        .map_err(|e| e.to_string())?;
-    for item in &input.items {
-        if item.quantity <= 0 {
-            return Err("Las cantidades deben ser mayores a cero".into());
-        }
-        let (name, price): (String, f64) = prod_stmt
-            .query_row(params![item.product_id], |r| Ok((r.get(0)?, r.get(1)?)))
-            .optional()
-            .map_err(|e| e.to_string())?
-            .ok_or_else(|| format!("Producto no disponible (id {})", item.product_id))?;
-
-        let subtotal = price * item.quantity as f64;
+    for (item, info) in &loaded {
+        let subtotal = info.price * item.quantity as f64;
         total += subtotal;
+        let unit_cost = sale_unit_cost(&tx, info.id, info.manual_cost)?;
         lines.push(CreditLineRow {
-            name,
-            price,
+            name: info.name.clone(),
+            price: info.price,
             qty: item.quantity,
             subtotal,
-            unit_cost: 0.0,
+            unit_cost,
         });
     }
-    drop(prod_stmt);
 
-    {
-        let mut cost_stmt = tx
-            .prepare(
-                "SELECT COALESCE(SUM(ri.quantity * m.cost_per_unit), 0)
-                 FROM recipe_items ri JOIN materials m ON m.id = ri.material_id
-                 WHERE ri.product_id = ?1",
-            )
-            .map_err(|e| e.to_string())?;
-        for (item, line) in input.items.iter().zip(lines.iter_mut()) {
-            line.unit_cost = cost_stmt
-                .query_row(params![item.product_id], |r| r.get(0))
-                .map_err(|e| e.to_string())?;
-        }
-    }
-
-    let mut recipe_stmt = tx
-        .prepare("SELECT material_id, quantity FROM recipe_items WHERE product_id = ?1")
-        .map_err(|e| e.to_string())?;
-    for item in &input.items {
-        let rows = recipe_stmt
-            .query_map(params![item.product_id], |r| {
-                Ok((r.get::<_, i64>(0)?, r.get::<_, f64>(1)?))
-            })
-            .map_err(|e| e.to_string())?;
-        for row in rows {
-            let (material_id, qty_per_unit) = row.map_err(|e| e.to_string())?;
-            *needs.entry(material_id).or_insert(0.0) += qty_per_unit * item.quantity as f64;
-        }
-    }
-    drop(recipe_stmt);
-
-    let mut shortages: Vec<String> = Vec::new();
-    {
-        let mut mat_stmt = tx
-            .prepare("SELECT name, stock FROM materials WHERE id = ?1")
-            .map_err(|e| e.to_string())?;
-        for (material_id, needed) in &needs {
-            let (mname, stock): (String, f64) = mat_stmt
-                .query_row(params![material_id], |r| Ok((r.get(0)?, r.get(1)?)))
-                .optional()
-                .map_err(|e| e.to_string())?
-                .ok_or_else(|| "Material no encontrado en la receta".to_string())?;
-            if stock < *needed {
-                shortages.push(format!(
-                    "{}: necesitas {}, disponible {}",
-                    mname,
-                    crate::db::fmt_qty(*needed),
-                    crate::db::fmt_qty(stock)
-                ));
-            }
-        }
-    }
-    if !shortages.is_empty() {
-        return Err(format!(
-            "Stock insuficiente · {}",
-            shortages.join("  ·  ")
-        ));
-    }
+    let needs = collect_material_needs(&tx, &loaded)?;
+    verify_product_stock(&loaded)?;
+    verify_material_stock(&tx, &needs)?;
 
     let (sale_id, created_at): (i64, String) = tx
         .query_row(
@@ -620,22 +666,8 @@ pub async fn create_credit_sale(
         )
         .map_err(|e| e.to_string())?;
 
-    {
-        let mut upd = tx
-            .prepare("UPDATE materials SET stock = stock - ?1, updated_at = datetime('now','localtime') WHERE id = ?2")
-            .map_err(|e| e.to_string())?;
-        let mut mov = tx
-            .prepare(
-                "INSERT INTO stock_movements (material_id, change, reason, reference_id) VALUES (?1, ?2, 'venta_credito', ?3)",
-            )
-            .map_err(|e| e.to_string())?;
-        for (material_id, needed) in &needs {
-            upd.execute(params![needed, material_id])
-                .map_err(|e| e.to_string())?;
-            mov.execute(params![material_id, -needed, sale_id])
-                .map_err(|e| e.to_string())?;
-        }
-    }
+    deduct_materials(&tx, &needs, "venta_credito", sale_id)?;
+    deduct_product_stock(&tx, &loaded, "venta_credito", sale_id)?;
 
     {
         let mut ins = tx

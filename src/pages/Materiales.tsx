@@ -12,6 +12,7 @@ import { api } from "../lib/api";
 import type { Material, Movement } from "../lib/types";
 import { errMsg, fmtDateTime, fmtMoney, fmtQty } from "../lib/format";
 import { REASON_LABELS, UNITS } from "../lib/constants";
+import { costEquivalents, stockEquivalents } from "../lib/units";
 import {
   Badge,
   Button,
@@ -250,6 +251,8 @@ export default function Materiales() {
                 {filtered.map((m) => {
                   const isOut = m.stock <= 0;
                   const isLow = !isOut && m.minStock > 0 && m.stock <= m.minStock;
+                  const equiv = stockEquivalents(m.stock, m.unit);
+                  const costs = costEquivalents(m.costPerUnit, m.unit);
                   return (
                     <div
                       key={m.id}
@@ -260,6 +263,16 @@ export default function Materiales() {
                         <p className="text-[11px] text-zinc-500">
                           Unidad: {m.unit} · Mín: {fmtQty(m.minStock)}
                         </p>
+                        {equiv && (
+                          <p className="mt-0.5 truncate text-[11px] tabular-nums text-zinc-600">
+                            = {equiv}
+                          </p>
+                        )}
+                        {costs.length > 0 && (
+                          <p className="truncate text-[11px] tabular-nums text-zinc-600">
+                            {costs.map((c) => `${fmtMoney(c.cost)}/${c.unit}`).join(" · ")}
+                          </p>
+                        )}
                       </div>
                       <div className="flex items-center gap-2">
                         <span

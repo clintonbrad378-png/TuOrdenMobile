@@ -138,6 +138,48 @@ CREATE INDEX IF NOT EXISTS idx_expenses_created ON expenses(created_at);
 CREATE INDEX IF NOT EXISTS idx_expenses_category ON expenses(category);
 "#;
 
+const MIGRATION_V6: &str = r#"
+ALTER TABLE products ADD COLUMN tracks_stock INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE products ADD COLUMN stock REAL NOT NULL DEFAULT 0;
+ALTER TABLE products ADD COLUMN min_stock REAL NOT NULL DEFAULT 0;
+ALTER TABLE products ADD COLUMN manual_cost REAL NOT NULL DEFAULT 0;
+
+CREATE TABLE IF NOT EXISTS productions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+  quantity REAL NOT NULL,
+  unit_cost REAL NOT NULL DEFAULT 0,
+  total_material_cost REAL NOT NULL DEFAULT 0,
+  note TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+);
+
+CREATE TABLE IF NOT EXISTS product_stock_movements (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+  change REAL NOT NULL,
+  reason TEXT NOT NULL,
+  reference_id INTEGER,
+  created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_productions_product ON productions(product_id);
+CREATE INDEX IF NOT EXISTS idx_productions_created ON productions(created_at);
+CREATE INDEX IF NOT EXISTS idx_pmov_product ON product_stock_movements(product_id);
+CREATE INDEX IF NOT EXISTS idx_pmov_created ON product_stock_movements(created_at);
+"#;
+
+const MIGRATION_V7: &str = r#"
+-- El costo del producto por stock nace de su receta: recalcularlo para los
+-- productos existentes que ya tenían receta.
+UPDATE products SET manual_cost = (
+  SELECT COALESCE(SUM(ri.quantity * m.cost_per_unit), products.manual_cost)
+  FROM recipe_items ri JOIN materials m ON m.id = ri.material_id
+  WHERE ri.product_id = products.id
+)
+WHERE tracks_stock = 1
+  AND EXISTS (SELECT 1 FROM recipe_items WHERE product_id = products.id);
+"#;
 pub fn init_db(path: &std::path::Path) -> Result<Connection, Box<dyn std::error::Error>> {
     let conn = Connection::open(path)?;
     conn.pragma_update(None, "foreign_keys", "ON")?;
@@ -166,6 +208,14 @@ fn migrate(conn: &Connection) -> Result<(), Box<dyn std::error::Error>> {
     if version < 5 {
         conn.execute_batch(MIGRATION_V5)?;
         conn.pragma_update(None, "user_version", 5)?;
+    }
+    if version < 6 {
+        conn.execute_batch(MIGRATION_V6)?;
+        conn.pragma_update(None, "user_version", 6)?;
+    }
+    if version < 7 {
+        conn.execute_batch(MIGRATION_V7)?;
+        conn.pragma_update(None, "user_version", 7)?;
     }
     Ok(())
 }
