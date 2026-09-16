@@ -102,7 +102,7 @@ jobs:
       - name: Build Android APK (debug)
         run: |
           cd src-tauri
-          cargo tauri android build --target aarch64-linux-android --debug
+          cargo tauri android build --target aarch64 --debug
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4

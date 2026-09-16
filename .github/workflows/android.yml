@@ -110,7 +110,7 @@ jobs:
 
       - name: Build Android APK
         run: |
-          cargo tauri android build --target aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+          cargo tauri android build --target aarch64 --target armv7 --target i686 --target x86_64
         env:
           JAVA_HOME: ${{ env.JAVA_HOME }}
 
