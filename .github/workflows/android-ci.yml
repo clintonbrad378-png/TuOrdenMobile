@@ -41,6 +41,8 @@ jobs:
       - name: Export Android NDK env
         run: |
           SDK_ROOT="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          echo "ANDROID_HOME=$SDK_ROOT" >> $GITHUB_ENV
+          echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> $GITHUB_ENV
           NDK_DIR="$SDK_ROOT/ndk/27.2.12479018"
           if [ ! -d "$NDK_DIR" ]; then
             NDK_DIR=$(ls -d "$SDK_ROOT"/ndk/* 2>/dev/null | sort -V | tail -n1)
@@ -48,6 +50,17 @@ jobs:
           echo "NDK_HOME=$NDK_DIR" >> $GITHUB_ENV
           echo "ANDROID_NDK_HOME=$NDK_DIR" >> $GITHUB_ENV
           echo "NDK: $NDK_DIR"
+          LLVM_BIN="$NDK_DIR/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          echo "$LLVM_BIN" >> $GITHUB_PATH
+          echo "CC_aarch64-linux-android=$LLVM_BIN/aarch64-linux-android21-clang" >> $GITHUB_ENV
+          echo "CC_aarch64_linux_android=$LLVM_BIN/aarch64-linux-android21-clang" >> $GITHUB_ENV
+          echo "CC_armv7-linux-androideabi=$LLVM_BIN/armv7a-linux-androideabi21-clang" >> $GITHUB_ENV
+          echo "CC_armv7_linux_androideabi=$LLVM_BIN/armv7a-linux-androideabi21-clang" >> $GITHUB_ENV
+          echo "CC_i686-linux-android=$LLVM_BIN/i686-linux-android21-clang" >> $GITHUB_ENV
+          echo "CC_i686_linux_android=$LLVM_BIN/i686-linux-android21-clang" >> $GITHUB_ENV
+          echo "CC_x86_64-linux-android=$LLVM_BIN/x86_64-linux-android21-clang" >> $GITHUB_ENV
+          echo "CC_x86_64_linux_android=$LLVM_BIN/x86_64-linux-android21-clang" >> $GITHUB_ENV
+          ls "$LLVM_BIN" | grep -E "21-clang$" || true
 
       - name: Configure Cargo for Android
         run: |
