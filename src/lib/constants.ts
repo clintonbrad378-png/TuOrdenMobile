@@ -19,4 +19,6 @@ export const REASON_LABELS: Record<string, string> = {
   merma: "Merma",
   consumo_interno: "Consumo interno",
   produccion: "Producción",
+  produccion_material: "Prod. material",
+  elaboracion: "Elaboración",
 };

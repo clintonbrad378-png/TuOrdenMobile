@@ -46,6 +46,14 @@ export const api = {
   internalConsumption: (input: { productId: number; quantity: number }) =>
     invoke<void>("internal_consumption", { input }),
   listMovements: (limit?: number) => invoke<Movement[]>("list_movements", { limit }),
+  estimateMaterialProduction: (materialId: number) =>
+    invoke<import("./types").MaterialProductionEstimate>("estimate_material_production", {
+      materialId,
+    }),
+  produceMaterial: (input: { materialId: number; quantity: number; note?: string | null }) =>
+    invoke<import("./types").MaterialProduction>("produce_material", { input }),
+  listMaterialProductions: (limit?: number) =>
+    invoke<import("./types").MaterialProduction[]>("list_material_productions", { limit }),
 
   // Products
   listProducts: (includeInactive?: boolean) =>

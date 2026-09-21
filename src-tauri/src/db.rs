@@ -180,6 +180,37 @@ UPDATE products SET manual_cost = (
 WHERE tracks_stock = 1
   AND EXISTS (SELECT 1 FROM recipe_items WHERE product_id = products.id);
 "#;
+
+const MIGRATION_V8: &str = r#"
+-- Materiales elaborados (ej. masa de hamburguesa): un material puede tener
+-- receta de otros materiales. recipe_yield = cuánto rinde la receta base
+-- en la unidad de stock del material resultado.
+ALTER TABLE materials ADD COLUMN is_elaborated INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE materials ADD COLUMN recipe_yield REAL NOT NULL DEFAULT 0;
+
+CREATE TABLE IF NOT EXISTS material_recipe_items (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  material_id INTEGER NOT NULL REFERENCES materials(id) ON DELETE CASCADE,
+  component_id INTEGER NOT NULL REFERENCES materials(id) ON DELETE CASCADE,
+  quantity REAL NOT NULL,
+  UNIQUE (material_id, component_id)
+);
+
+CREATE TABLE IF NOT EXISTS material_productions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  material_id INTEGER NOT NULL REFERENCES materials(id) ON DELETE CASCADE,
+  quantity REAL NOT NULL,
+  unit_cost REAL NOT NULL DEFAULT 0,
+  total_material_cost REAL NOT NULL DEFAULT 0,
+  note TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_mat_recipe_material ON material_recipe_items(material_id);
+CREATE INDEX IF NOT EXISTS idx_mat_recipe_component ON material_recipe_items(component_id);
+CREATE INDEX IF NOT EXISTS idx_mat_prod_material ON material_productions(material_id);
+CREATE INDEX IF NOT EXISTS idx_mat_prod_created ON material_productions(created_at);
+"#;
 pub fn init_db(path: &std::path::Path) -> Result<Connection, Box<dyn std::error::Error>> {
     let conn = Connection::open(path)?;
     conn.pragma_update(None, "foreign_keys", "ON")?;
@@ -216,6 +247,10 @@ fn migrate(conn: &Connection) -> Result<(), Box<dyn std::error::Error>> {
     if version < 7 {
         conn.execute_batch(MIGRATION_V7)?;
         conn.pragma_update(None, "user_version", 7)?;
+    }
+    if version < 8 {
+        conn.execute_batch(MIGRATION_V8)?;
+        conn.pragma_update(None, "user_version", 8)?;
     }
     Ok(())
 }

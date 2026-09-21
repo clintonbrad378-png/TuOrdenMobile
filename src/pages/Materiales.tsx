@@ -12,7 +12,7 @@ import { api } from "../lib/api";
 import type { Material, Movement } from "../lib/types";
 import { errMsg, fmtDateTime, fmtMoney, fmtQty } from "../lib/format";
 import { REASON_LABELS, UNITS } from "../lib/constants";
-import { costEquivalents, stockEquivalents } from "../lib/units";
+import { compatibleUnits, convertQty, costEquivalents, stockEquivalents, unitFamily } from "../lib/units";
 import {
   Badge,
   Button,
@@ -25,6 +25,7 @@ import {
   PageHeader,
   Select,
   Spinner,
+  Switch,
   Tabs,
   cn,
   useToast,
@@ -32,7 +33,26 @@ import {
 
 type Tab = "inventario" | "movimientos";
 
-const emptyForm = { name: "", unit: "u", stock: "", minStock: "", costPerUnit: "" };
+interface RecipeRow {
+  componentId: number | null;
+  quantity: string;
+  unit: string;
+}
+
+const emptyForm = {
+  name: "",
+  unit: "u",
+  stock: "",
+  minStock: "",
+  costPerUnit: "",
+  isElaborated: false,
+  recipeYield: "",
+};
+
+function defaultRecipeUnit(mat: Material | null | undefined): string {
+  if (!mat) return "g";
+  return unitFamily(mat.unit) === "mass" ? "g" : mat.unit;
+}
 
 export default function Materiales() {
   const [tab, setTab] = useState<Tab>("inventario");
@@ -43,6 +63,7 @@ export default function Materiales() {
   const [editorOpen, setEditorOpen] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [form, setForm] = useState(emptyForm);
+  const [recipe, setRecipe] = useState<RecipeRow[]>([]);
   const [saving, setSaving] = useState(false);
 
   const [adjustTarget, setAdjustTarget] = useState<Material | null>(null);
@@ -77,6 +98,7 @@ export default function Materiales() {
   const openCreate = () => {
     setEditingId(null);
     setForm(emptyForm);
+    setRecipe([]);
     setEditorOpen(true);
   };
 
@@ -88,9 +110,46 @@ export default function Materiales() {
       stock: "",
       minStock: String(m.minStock),
       costPerUnit: String(m.costPerUnit),
+      isElaborated: m.isElaborated ?? false,
+      recipeYield:
+        m.isElaborated && m.recipeYield > 0 ? String(m.recipeYield) : "",
     });
+    setRecipe(
+      (m.recipe ?? []).map((r) => {
+        const comp = (materials ?? []).find((x) => x.id === r.materialId) ?? null;
+        const dispUnit = defaultRecipeUnit(comp);
+        const dispQty =
+          comp && dispUnit !== comp.unit
+            ? (convertQty(r.quantity, comp.unit, dispUnit) ?? r.quantity)
+            : r.quantity;
+        return {
+          componentId: r.materialId,
+          quantity: String(Math.round(dispQty * 1000) / 1000),
+          unit: dispUnit,
+        };
+      }),
+    );
     setEditorOpen(true);
   };
+
+  const rowStockQty = (row: RecipeRow): number | null => {
+    const comp = (materials ?? []).find((x) => x.id === row.componentId);
+    if (!comp) return null;
+    const q = Number(row.quantity);
+    if (!(q > 0)) return null;
+    return convertQty(q, row.unit || comp.unit, comp.unit);
+  };
+
+  const recipeCostForYield = useMemo(() => {
+    return recipe.reduce((acc, row) => {
+      const comp = (materials ?? []).find((x) => x.id === row.componentId);
+      if (!comp) return acc;
+      const sq = rowStockQty(row);
+      if (sq === null) return acc;
+      return acc + comp.costPerUnit * sq;
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, 0);
+  }, [recipe, materials]);
 
   const saveMaterial = async () => {
     if (!form.name.trim()) {
@@ -101,6 +160,39 @@ export default function Materiales() {
       toast("error", "Ingresa un stock inicial válido");
       return;
     }
+    if (form.isElaborated) {
+      if (!(Number(form.recipeYield) > 0)) {
+        toast("error", "Indica cuánto rinde la receta base (ej. 10 lb)");
+        return;
+      }
+      if (recipe.length === 0) {
+        toast("error", "Agrega al menos un ingrediente a la receta");
+        return;
+      }
+    }
+    const converted: { componentId: number; quantity: number }[] = [];
+    if (form.isElaborated) {
+      for (const r of recipe) {
+        const comp = (materials ?? []).find((x) => x.id === r.componentId);
+        if (r.componentId === null || !comp || !(Number(r.quantity) > 0)) {
+          toast("error", "Completa la receta: ingrediente y cantidad mayor a cero");
+          return;
+        }
+        if (editingId !== null && r.componentId === editingId) {
+          toast("error", "Un material no puede usarse a sí mismo como ingrediente");
+          return;
+        }
+        const sq = convertQty(Number(r.quantity), r.unit || comp.unit, comp.unit);
+        if (sq === null || !(sq > 0)) {
+          toast("error", `Unidad incompatible para "${comp.name}"`);
+          return;
+        }
+        converted.push({
+          componentId: r.componentId,
+          quantity: Math.round(sq * 100000) / 100000,
+        });
+      }
+    }
     setSaving(true);
     try {
       if (editingId === null) {
@@ -110,6 +202,9 @@ export default function Materiales() {
           stock: Number(form.stock) || 0,
           minStock: Number(form.minStock) || 0,
           costPerUnit: Number(form.costPerUnit) || 0,
+          isElaborated: form.isElaborated,
+          recipeYield: form.isElaborated ? Number(form.recipeYield) || 0 : 0,
+          recipe: converted,
         });
         toast("success", "Material creado");
       } else {
@@ -118,6 +213,9 @@ export default function Materiales() {
           unit: form.unit,
           minStock: Number(form.minStock) || 0,
           costPerUnit: Number(form.costPerUnit) || 0,
+          isElaborated: form.isElaborated,
+          recipeYield: form.isElaborated ? Number(form.recipeYield) || 0 : 0,
+          recipe: converted,
         });
         toast("success", "Material actualizado");
       }
@@ -259,9 +357,15 @@ export default function Materiales() {
                       className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3 transition-colors hover:bg-white/[0.02] sm:flex-nowrap sm:gap-4 sm:px-5"
                     >
                       <div className="min-w-0 flex-1 basis-36">
-                        <p className="truncate text-sm font-medium text-zinc-100">{m.name}</p>
+                        <p className="flex flex-wrap items-center gap-1.5 truncate text-sm font-medium text-zinc-100">
+                          <span className="truncate">{m.name}</span>
+                          {m.isElaborated && <Badge tone="accent">Elaborado</Badge>}
+                        </p>
                         <p className="text-[11px] text-zinc-500">
                           Unidad: {m.unit} · Mín: {fmtQty(m.minStock)}
+                          {m.isElaborated
+                            ? ` · Rinde ${fmtQty(m.recipeYield)} ${m.unit} · ${(m.recipe ?? []).length} insumos`
+                            : ""}
                         </p>
                         {equiv && (
                           <p className="mt-0.5 truncate text-[11px] tabular-nums text-zinc-600">
@@ -362,7 +466,11 @@ export default function Materiales() {
                           ? "accent"
                           : mv.reason === "salida"
                             ? "warn"
-                            : "zinc"
+                            : mv.reason === "produccion_material" ||
+                                mv.reason === "elaboracion" ||
+                                mv.reason === "produccion"
+                              ? "success"
+                              : "zinc"
                       }
                       className="w-24 justify-center"
                     >
@@ -381,6 +489,7 @@ export default function Materiales() {
         open={editorOpen}
         onClose={() => setEditorOpen(false)}
         title={editingId === null ? "Nuevo material" : "Editar material"}
+        width="max-w-3xl"
         footer={
           <>
             <Button variant="ghost" onClick={() => setEditorOpen(false)} disabled={saving}>
@@ -396,7 +505,7 @@ export default function Materiales() {
           <Input
             value={form.name}
             onChange={(e) => setForm({ ...form, name: e.target.value })}
-            placeholder="Ej. Harina de trigo"
+            placeholder="Ej. Masa de hamburguesa"
           />
         </Field>
         <div className="grid grid-cols-2 gap-4">
@@ -431,7 +540,14 @@ export default function Materiales() {
               placeholder="0"
             />
           </Field>
-          <Field label="Costo por unidad">
+          <Field
+            label="Costo por unidad"
+            hint={
+              form.isElaborated
+                ? "Se recalcula solo al elaborar (total receta / rendimiento)"
+                : undefined
+            }
+          >
             <Input
               type="number"
               min="0"
@@ -439,6 +555,7 @@ export default function Materiales() {
               value={form.costPerUnit}
               onChange={(e) => setForm({ ...form, costPerUnit: e.target.value })}
               placeholder="0.00"
+              disabled={form.isElaborated && editingId !== null}
             />
           </Field>
         </div>
@@ -446,6 +563,155 @@ export default function Materiales() {
           <p className="text-xs text-zinc-600">
             El stock se modifica mediante entradas y salidas para mantener trazabilidad.
           </p>
+        )}
+
+        <label className="flex items-center justify-between rounded-xl border border-accent-500/25 bg-accent-500/[0.06] px-4 py-3">
+          <span className="text-sm text-zinc-200">
+            Es material elaborado
+            <span className="block text-[11px] font-normal text-zinc-500">
+              {form.isElaborated
+                ? "Se fabrica con otros materiales (ej. masa con picadillo + harina). Luego sirve para producir."
+                : "Es materia prima comprada (ej. harina, picadillo)."}
+            </span>
+          </span>
+          <Switch
+            checked={form.isElaborated}
+            onChange={(v) => setForm({ ...form, isElaborated: v })}
+          />
+        </label>
+
+        {form.isElaborated && (
+          <div className="space-y-3 rounded-xl border border-white/[0.06] bg-white/[0.02] p-3">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <Field
+                label={`Rinde (en ${form.unit})`}
+                hint="Cuánto sale con la receta base. Ej. receta para 10 lb → 10"
+              >
+                <Input
+                  type="number"
+                  min="0"
+                  step="any"
+                  value={form.recipeYield}
+                  onChange={(e) => setForm({ ...form, recipeYield: e.target.value })}
+                  placeholder="Ej. 10"
+                />
+              </Field>
+              <div className="flex items-end pb-1 text-[11px] leading-snug text-zinc-500">
+                Costo lote base:{" "}
+                <strong className="ml-1 text-zinc-200">{fmtMoney(recipeCostForYield)}</strong>
+                {Number(form.recipeYield) > 0 && (
+                  <span className="ml-1">
+                    · Costo/{form.unit}:{" "}
+                    <strong className="text-accent-400">
+                      {fmtMoney(recipeCostForYield / Number(form.recipeYield))}
+                    </strong>
+                  </span>
+                )}
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium tracking-wide text-zinc-400">
+                Receta base · insumos por {form.recipeYield || "?"} {form.unit}
+              </span>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setRecipe([...recipe, { componentId: null, quantity: "", unit: "g" }])}
+                disabled={(materials ?? []).length === 0}
+              >
+                <Plus size={13} />
+                Ingrediente
+              </Button>
+            </div>
+            <p className="text-[11px] text-zinc-600">
+              Pesa en gramos aunque el insumo esté en libras: se convierte solo al guardar.
+              El propio material no puede ser su ingrediente.
+            </p>
+
+            {recipe.map((row, i) => {
+              const comp = (materials ?? []).find((x) => x.id === row.componentId) ?? null;
+              const sq = rowStockQty(row);
+              const lineCost = comp && sq !== null ? comp.costPerUnit * sq : null;
+              const units = comp ? compatibleUnits(comp.unit) : ["g", "kg", "lb", "oz", "ml", "L", "u"];
+              const candidates = (materials ?? []).filter((x) =>
+                editingId !== null ? x.id !== editingId : true,
+              );
+              return (
+                <div key={i} className="rounded-xl border border-white/[0.06] bg-surface-800 p-2.5">
+                  <div className="flex items-center gap-2">
+                    <Select
+                      value={row.componentId?.toString() ?? ""}
+                      onChange={(e) => {
+                        const next = [...recipe];
+                        const id = e.target.value ? Number(e.target.value) : null;
+                        const m = (materials ?? []).find((x) => x.id === id) ?? null;
+                        next[i] = { ...next[i], componentId: id, unit: defaultRecipeUnit(m) };
+                        setRecipe(next);
+                      }}
+                    >
+                      <option value="">Seleccionar ingrediente…</option>
+                      {candidates.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.name} ({m.unit}){m.isElaborated ? " · elaborado" : ""}
+                        </option>
+                      ))}
+                    </Select>
+                    <button
+                      type="button"
+                      onClick={() => setRecipe(recipe.filter((_, j) => j !== i))}
+                      className="shrink-0 rounded-lg p-2 text-zinc-600 transition-colors hover:text-red-400"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                  <div className="mt-2 flex flex-wrap items-center gap-2 px-0.5">
+                    <span className="text-[11px] text-zinc-500">Cantidad</span>
+                    <Input
+                      type="number"
+                      min="0"
+                      step="any"
+                      className="h-8 w-24 py-1"
+                      placeholder="0"
+                      value={row.quantity}
+                      onChange={(e) => {
+                        const next = [...recipe];
+                        next[i] = { ...next[i], quantity: e.target.value };
+                        setRecipe(next);
+                      }}
+                    />
+                    <select
+                      value={row.unit || comp?.unit || "g"}
+                      onChange={(e) => {
+                        const next = [...recipe];
+                        next[i] = { ...next[i], unit: e.target.value };
+                        setRecipe(next);
+                      }}
+                      className="h-8 rounded-lg border border-white/10 bg-surface-800 px-2 text-xs text-zinc-200 outline-none"
+                    >
+                      {units.map((u) => (
+                        <option key={u} value={u}>
+                          {u}
+                        </option>
+                      ))}
+                    </select>
+                    {comp && <span className="text-[11px] text-zinc-600">stock en {comp.unit}</span>}
+                    <span className="ml-auto text-[11px] tabular-nums text-zinc-500">
+                      Costo línea:{" "}
+                      <strong className="font-medium text-zinc-300">
+                        {lineCost !== null ? fmtMoney(lineCost) : "—"}
+                      </strong>
+                    </span>
+                  </div>
+                  {comp && row.unit && row.unit !== comp.unit && sq !== null && (
+                    <p className="mt-1 px-0.5 text-[11px] tabular-nums text-zinc-600">
+                      {row.quantity} {row.unit} = {fmtQty(sq)} {comp.unit} de "{comp.name}"
+                    </p>
+                  )}
+                </div>
+              );
+            })}
+          </div>
         )}
       </Modal>
 
@@ -523,7 +789,8 @@ export default function Materiales() {
         message={
           <>
             ¿Seguro que quieres eliminar <strong>{deleteTarget?.name}</strong>? Se quitará de
-            todas las recetas donde se use y se perderá su historial de movimientos.
+            todas las recetas de productos y de materiales elaborados donde se use, se borrará
+            su receta si es elaborado y se perderá su historial de movimientos y elaboraciones.
           </>
         }
       />

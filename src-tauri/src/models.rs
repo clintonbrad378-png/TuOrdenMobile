@@ -11,6 +11,26 @@ pub struct Material {
     pub cost_per_unit: f64,
     pub created_at: String,
     pub updated_at: String,
+    pub is_elaborated: bool,
+    pub recipe_yield: f64,
+    pub recipe: Vec<MaterialRecipeItem>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MaterialRecipeItem {
+    pub material_id: i64,
+    pub material_name: String,
+    pub unit: String,
+    pub quantity: f64,
+    pub cost_per_unit: f64,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MaterialRecipeItemInput {
+    pub component_id: i64,
+    pub quantity: f64,
 }
 
 #[derive(Deserialize)]
@@ -21,6 +41,12 @@ pub struct CreateMaterialInput {
     pub stock: f64,
     pub min_stock: f64,
     pub cost_per_unit: f64,
+    #[serde(default)]
+    pub is_elaborated: bool,
+    #[serde(default)]
+    pub recipe_yield: f64,
+    #[serde(default)]
+    pub recipe: Vec<MaterialRecipeItemInput>,
 }
 
 #[derive(Deserialize)]
@@ -30,6 +56,12 @@ pub struct UpdateMaterialInput {
     pub unit: String,
     pub min_stock: f64,
     pub cost_per_unit: f64,
+    #[serde(default)]
+    pub is_elaborated: bool,
+    #[serde(default)]
+    pub recipe_yield: f64,
+    #[serde(default)]
+    pub recipe: Vec<MaterialRecipeItemInput>,
 }
 
 #[derive(Serialize)]
@@ -428,4 +460,53 @@ pub struct ProductionEstimate {
     pub max_units: i64,
     pub limiting_material: Option<String>,
     pub items: Vec<ProductionEstimateItem>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MaterialProduction {
+    pub id: i64,
+    pub material_id: i64,
+    pub material_name: String,
+    pub quantity: f64,
+    pub unit: String,
+    pub unit_cost: f64,
+    pub total_material_cost: f64,
+    pub note: Option<String>,
+    pub created_at: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProduceMaterialInput {
+    pub material_id: i64,
+    pub quantity: f64,
+    pub note: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MaterialProductionEstimateItem {
+    pub material_id: i64,
+    pub material_name: String,
+    pub unit: String,
+    pub stock: f64,
+    pub cost_per_unit: f64,
+    pub base_quantity: f64,
+    pub required_per_unit: f64,
+    pub max_output: f64,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MaterialProductionEstimate {
+    pub material_id: i64,
+    pub material_name: String,
+    pub unit: String,
+    pub recipe_yield: f64,
+    pub max_output: f64,
+    pub limiting_material: Option<String>,
+    pub total_batch_cost: f64,
+    pub unit_cost: f64,
+    pub items: Vec<MaterialProductionEstimateItem>,
 }

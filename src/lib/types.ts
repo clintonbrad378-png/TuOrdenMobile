@@ -7,6 +7,17 @@ export interface Material {
   costPerUnit: number;
   createdAt: string;
   updatedAt: string;
+  isElaborated: boolean;
+  recipeYield: number;
+  recipe: MaterialRecipeItem[];
+}
+
+export interface MaterialRecipeItem {
+  materialId: number;
+  materialName: string;
+  unit: string;
+  quantity: number;
+  costPerUnit: number;
 }
 
 export interface CreateMaterialInput {
@@ -15,6 +26,9 @@ export interface CreateMaterialInput {
   stock: number;
   minStock: number;
   costPerUnit: number;
+  isElaborated: boolean;
+  recipeYield: number;
+  recipe: { componentId: number; quantity: number }[];
 }
 
 export interface UpdateMaterialInput {
@@ -22,6 +36,44 @@ export interface UpdateMaterialInput {
   unit: string;
   minStock: number;
   costPerUnit: number;
+  isElaborated: boolean;
+  recipeYield: number;
+  recipe: { componentId: number; quantity: number }[];
+}
+
+export interface MaterialProduction {
+  id: number;
+  materialId: number;
+  materialName: string;
+  quantity: number;
+  unit: string;
+  unitCost: number;
+  totalMaterialCost: number;
+  note: string | null;
+  createdAt: string;
+}
+
+export interface MaterialProductionEstimateItem {
+  materialId: number;
+  materialName: string;
+  unit: string;
+  stock: number;
+  costPerUnit: number;
+  baseQuantity: number;
+  requiredPerUnit: number;
+  maxOutput: number;
+}
+
+export interface MaterialProductionEstimate {
+  materialId: number;
+  materialName: string;
+  unit: string;
+  recipeYield: number;
+  maxOutput: number;
+  limitingMaterial: string | null;
+  totalBatchCost: number;
+  unitCost: number;
+  items: MaterialProductionEstimateItem[];
 }
 
 export interface Movement {
