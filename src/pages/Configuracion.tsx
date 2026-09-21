@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { open, save } from "@tauri-apps/plugin-dialog";
+import { QRCodeSVG } from "qrcode.react";
 import {
   Check,
   ChevronDown,
@@ -10,15 +11,18 @@ import {
   EyeOff,
   HardDriveDownload,
   Info,
+  KeyRound,
   Lock,
   Package,
+  QrCode,
+  RefreshCw,
   RotateCcw,
   Shield,
   ShoppingBag,
   Upload,
 } from "lucide-react";
 import { api } from "../lib/api";
-import type { DbInfo } from "../lib/types";
+import type { DbInfo, LicenseCheck } from "../lib/types";
 import { errMsg, humanSize, isoToday } from "../lib/format";
 import { useAuth } from "../lib/auth";
 import {
@@ -83,12 +87,20 @@ export default function Configuracion() {
   const [showSbKeys, setShowSbKeys] = useState(false);
   const [intervalOpen, setIntervalOpen] = useState(false);
 
+  // Licencia y renovación (solo gerente)
+  const [licCheck, setLicCheck] = useState<LicenseCheck | null>(null);
+  const [renewText, setRenewText] = useState("");
+  const [renewing, setRenewing] = useState(false);
+
   const load = useCallback(async () => {
     try {
       setInfo(await api.dbInfo());
     } catch (e) {
       toast("error", errMsg(e));
     }
+    try {
+      setLicCheck(await api.licenseCheck());
+    } catch {}
     try {
       if (!isDependiente) {
         const hint = await api.getManagerPinHint();
@@ -264,6 +276,34 @@ export default function Configuracion() {
     }
   };
 
+  const copyDeviceId = async () => {
+    if (!licCheck?.publicKey) return;
+    try {
+      await navigator.clipboard.writeText(licCheck.publicKey);
+      toast("info", "ID del dispositivo copiado");
+    } catch {
+      toast("error", "No se pudo copiar el ID");
+    }
+  };
+
+  const handleRenew = async () => {
+    if (!renewText.trim()) {
+      toast("error", "Pega el código de renovación del proveedor");
+      return;
+    }
+    setRenewing(true);
+    try {
+      await api.licenseImport(renewText.trim());
+      setRenewText("");
+      setLicCheck(await api.licenseCheck());
+      toast("success", "Licencia renovada correctamente");
+    } catch (e) {
+      toast("error", errMsg(e));
+    } finally {
+      setRenewing(false);
+    }
+  };
+
   const handleChangePin = async () => {
     const hasPin = pinHint !== "";
     if ((hasPin && !currentPin.trim()) || !newPin.trim() || !confirmPin.trim()) {
@@ -381,6 +421,146 @@ export default function Configuracion() {
             </Button>
           </div>
         </Card>
+
+        {/* Licencia y renovación */}
+        {!isDependiente && (
+          <Card className="mt-6 p-5">
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="flex items-center gap-2 text-sm font-medium text-zinc-200">
+                <KeyRound size={16} className="text-accent-400" />
+                Licencia y renovación
+              </h2>
+              {licCheck && (
+                <Badge
+                  tone={
+                    licCheck.valid && !licCheck.needsActivation
+                      ? "success"
+                      : licCheck.publicKey
+                        ? "danger"
+                        : "warn"
+                  }
+                >
+                  {licCheck.valid && !licCheck.needsActivation
+                    ? "Vigente"
+                    : licCheck.publicKey
+                      ? "Expirada"
+                      : "Sin licencia"}
+                </Badge>
+              )}
+            </div>
+            {!licCheck ? (
+              <div className="grid h-20 place-items-center">
+                <Spinner />
+              </div>
+            ) : (
+              <>
+                <div className="mt-4 flex items-end gap-2">
+                  <p className="text-3xl font-semibold tabular-nums text-zinc-50">
+                    {licCheck.expiresAt === null
+                      ? "∞"
+                      : Math.max(
+                          0,
+                          Math.ceil(
+                            (Number(licCheck.expiresAt) * 1000 - Date.now()) / 86_400_000,
+                          ),
+                        )}
+                  </p>
+                  <p className="pb-1 text-xs text-zinc-500">
+                    {licCheck.expiresAt === null ? (
+                      "licencia ilimitada"
+                    ) : (
+                      <>
+                        días restantes
+                        <span className="block text-[11px] text-zinc-600">
+                          Expira:{" "}
+                          {new Date(Number(licCheck.expiresAt) * 1000).toLocaleDateString()}
+                        </span>
+                      </>
+                    )}
+                  </p>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="ml-auto"
+                    onClick={async () => {
+                      try {
+                        setLicCheck(await api.licenseCheck());
+                      } catch (e) {
+                        toast("error", errMsg(e));
+                      }
+                    }}
+                  >
+                    <RefreshCw size={14} />
+                    Verificar
+                  </Button>
+                </div>
+
+                {licCheck.publicKey && (
+                  <>
+                    <div className="mt-4 grid gap-1.5">
+                      <label className="text-xs font-medium text-zinc-400">
+                        ID del dispositivo (compártelo con el proveedor)
+                      </label>
+                      <button
+                        onClick={copyDeviceId}
+                        className="flex w-full items-center gap-2 rounded-xl border border-white/[0.06] bg-surface-800 px-4 py-3 text-left transition-colors hover:bg-white/[0.04]"
+                        title="Copiar ID"
+                      >
+                        <span className="min-w-0 flex-1 truncate font-mono text-xs break-all text-zinc-300">
+                          {licCheck.publicKey}
+                        </span>
+                        <Copy size={13} className="shrink-0 text-zinc-500" />
+                      </button>
+                    </div>
+
+                    <div className="mt-4 flex flex-col items-center rounded-xl border border-white/[0.06] bg-surface-800 px-4 py-4">
+                      <div className="flex items-center gap-2 text-xs font-medium text-zinc-300">
+                        <QrCode size={14} className="text-accent-400" />
+                        QR para el proveedor
+                      </div>
+                      <p className="mt-1 max-w-sm text-center text-[11px] leading-relaxed text-zinc-500">
+                        El proveedor lo escanea y con su script genera tu código
+                        de renovación. Luego pégalo abajo.
+                      </p>
+                      <div className="mt-3 rounded-2xl bg-white p-3 shadow-xl">
+                        <QRCodeSVG
+                          value={`TUORDEN|PK:${licCheck.publicKey}|EXP:${
+                            licCheck.expiresAt
+                              ? new Date(Number(licCheck.expiresAt) * 1000).toLocaleDateString()
+                              : "sin vencimiento"
+                          }|ACTIVAR`}
+                          size={160}
+                          level="M"
+                          bgColor="#ffffff"
+                          fgColor="#000000"
+                        />
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                <div className="mt-4 grid gap-1.5">
+                  <label className="text-xs font-medium text-zinc-400">
+                    Código de renovación del proveedor
+                  </label>
+                  <textarea
+                    value={renewText}
+                    onChange={(e) => setRenewText(e.target.value)}
+                    placeholder="Pega aquí el código que te entregó el proveedor…"
+                    rows={3}
+                    className="w-full resize-y rounded-lg border border-white/10 bg-surface-800 px-3 py-2 font-mono text-xs break-all text-zinc-100 placeholder:font-sans placeholder:text-sm placeholder:text-zinc-600 outline-none focus:border-accent-500/50"
+                  />
+                </div>
+                <div className="mt-3">
+                  <Button variant="primary" onClick={handleRenew} loading={renewing}>
+                    <KeyRound size={15} />
+                    {renewing ? "Renovando..." : "Renovar licencia"}
+                  </Button>
+                </div>
+              </>
+            )}
+          </Card>
+        )}
 
         {/* PIN Gerente */}
         {!isDependiente ? (
