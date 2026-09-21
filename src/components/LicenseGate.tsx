@@ -56,8 +56,9 @@ export default function LicenseGate({ children }: { children: React.ReactNode })
   };
   const handleGenerateDemo = async () => {
     setGenerating(true);
+    setError(null);
     try {
-      await api.licenseGenerate(7);
+      await api.licenseGenerateDemo();
       await doCheck();
     } catch (e) {
       setError(e instanceof Error ? e.message : typeof e === "string" ? e : JSON.stringify(e));
@@ -179,10 +180,21 @@ export default function LicenseGate({ children }: { children: React.ReactNode })
                   </Button>
                 </div>
               )}
-              <Button variant="ghost" onClick={handleGenerateDemo} loading={generating}>
+              <Button
+                variant="ghost"
+                onClick={handleGenerateDemo}
+                loading={generating}
+                disabled={check?.demoAvailable === false}
+              >
                 {generating ? "Generando..." : "Generar licencia demo (7 días)"}
               </Button>
-              {error && !check && (
+              {check?.demoAvailable === false && (
+                <p className="pt-1 text-center text-xs text-zinc-500">
+                  La demo ya fue utilizada en este dispositivo. Solo se permite una demo:
+                  contacta al proveedor para activar tu licencia.
+                </p>
+              )}
+              {error && (
                 <p className="pt-1 text-center text-xs text-red-400">{error}</p>
               )}
             </div>

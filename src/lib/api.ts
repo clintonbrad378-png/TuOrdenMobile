@@ -100,6 +100,7 @@ export const api = {
   dbInfo: () => invoke<DbInfo>("db_info"),
   // Licensing
   licenseGenerate: (expiresDays?: number) => invoke<LicenseKey>("license_generate", { expiresDays }),
+  licenseGenerateDemo: () => invoke<LicenseKey>("license_generate_demo"),
   licenseImport: (text: string) => invoke<LicenseKey>("license_import", { text }),
   licenseStatus: () => invoke<LicenseKey>("license_status"),
   licenseSign: (message: string) => invoke<string>("license_sign", { message }),

@@ -329,6 +329,7 @@ export interface LicenseCheck {
   publicKey: string | null;
   expiresAt: string | null;
   needsActivation: boolean;
+  demoAvailable: boolean;
 }
 
 export type ExpenseCategory =

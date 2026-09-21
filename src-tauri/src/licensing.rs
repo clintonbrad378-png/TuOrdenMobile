@@ -8,6 +8,12 @@ use std::path::PathBuf;
 use tauri::State;
 
 const LICENSE_FILE: &str = "license.lic";
+/// Marca de demo consumida. Vive en un archivo aparte de `license.lic` y de la
+/// BD para que ni borrar la licencia ni restaurar un respaldo la reinicien.
+/// Solo se puede pedir una demo por dispositivo (limitación local: reinstalar
+/// la app desde cero la pierde, eso se acepta).
+const DEMO_FILE: &str = "demo_history.json";
+const DEMO_DAYS: u64 = 7;
 
 #[derive(Serialize)]
 pub struct LicenseKey {
@@ -29,6 +35,7 @@ pub struct LicenseCheck {
     pub public_key: Option<String>,
     pub expires_at: Option<String>,
     pub needs_activation: bool,
+    pub demo_available: bool,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -59,6 +66,47 @@ fn read_license_file(state: &State<'_, AppState>) -> Result<LicenseFile, String>
     serde_json::from_str(&json).map_err(|e| format!("Archivo de licencia corrupto: {e}"))
 }
 
+#[derive(Serialize, Deserialize)]
+struct DemoMarker {
+    consumed: bool,
+    first_generated_at: u64,
+}
+
+fn demo_path(state: &State<'_, AppState>) -> Result<PathBuf, String> {
+    let lic = license_path(state)?;
+    let dir = lic
+        .parent()
+        .ok_or_else(|| "Ruta inválida".to_string())?;
+    Ok(dir.join(DEMO_FILE))
+}
+
+/// ¿Ya se consumió la demo en este dispositivo?
+fn demo_consumed(state: &State<'_, AppState>) -> bool {
+    let path = match demo_path(state) {
+        Ok(p) => p,
+        Err(_) => return false,
+    };
+    if !path.exists() {
+        return false;
+    }
+    match std::fs::read_to_string(&path) {
+        Ok(json) => serde_json::from_str::<DemoMarker>(&json)
+            .map(|m| m.consumed)
+            .unwrap_or(false),
+        Err(_) => false,
+    }
+}
+
+fn mark_demo_consumed(state: &State<'_, AppState>) -> Result<(), String> {
+    let marker = DemoMarker {
+        consumed: true,
+        first_generated_at: now_secs()?,
+    };
+    let json = serde_json::to_string_pretty(&marker).map_err(|e| e.to_string())?;
+    let path = demo_path(state)?;
+    std::fs::write(&path, json).map_err(|e| e.to_string())
+}
+
 fn now_secs() -> Result<u64, String> {
     Ok(std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -66,9 +114,8 @@ fn now_secs() -> Result<u64, String> {
         .as_secs())
 }
 
-#[tauri::command]
-pub async fn license_generate(
-    state: State<'_, AppState>,
+fn write_new_license(
+    state: &State<'_, AppState>,
     expires_days: Option<u64>,
 ) -> Result<LicenseKey, String> {
     let mut seed = [0u8; 32];
@@ -86,13 +133,49 @@ pub async fn license_generate(
     };
 
     let json = serde_json::to_string_pretty(&file).map_err(|e| e.to_string())?;
-    let path = license_path(&state)?;
+    let path = license_path(state)?;
     std::fs::write(&path, json).map_err(|e| e.to_string())?;
 
     Ok(LicenseKey {
         public_key: file.public_key,
         expires_at,
     })
+}
+
+#[tauri::command]
+pub async fn license_generate(
+    state: State<'_, AppState>,
+    expires_days: Option<u64>,
+) -> Result<LicenseKey, String> {
+    write_new_license(&state, expires_days)
+}
+
+/// Genera la licencia demo (7 días). Solo una vez por dispositivo: si ya se
+/// consumió, devuelve error y no toca la licencia vigente.
+#[tauri::command]
+pub async fn license_generate_demo(state: State<'_, AppState>) -> Result<LicenseKey, String> {
+    if demo_consumed(&state) {
+        return Err(
+            "La licencia demo ya fue utilizada en este dispositivo. Contacta al proveedor para activar tu licencia."
+                .into(),
+        );
+    }
+    // Respaldo por si falla el marcado (no dejar al usuario sin su licencia).
+    let previous_license = license_path(&state)
+        .ok()
+        .and_then(|p| std::fs::read(p).ok());
+    let key = write_new_license(&state, Some(DEMO_DAYS))?;
+    // Si no se puede dejar constancia, se restaura la licencia previa (o se
+    // elimina la recién creada si no había) para no regalar demos.
+    if let Err(e) = mark_demo_consumed(&state) {
+        if let Some(prev) = previous_license {
+            let _ = std::fs::write(license_path(&state)?, prev);
+        } else if let Ok(p) = license_path(&state) {
+            let _ = std::fs::remove_file(p);
+        }
+        return Err(format!("No se pudo registrar la demo: {e}"));
+    }
+    Ok(key)
 }
 
 #[tauri::command]
@@ -252,6 +335,12 @@ pub async fn license_verify(
 #[tauri::command]
 pub async fn license_check(state: State<'_, AppState>) -> Result<LicenseCheck, String> {
     let path = license_path(&state)?;
+    // Dispositivos actualizados que ya tenían licencia: se considera la demo
+    // consumida aunque no exista el marcador (evita una demo extra).
+    if path.exists() && !demo_consumed(&state) {
+        let _ = mark_demo_consumed(&state);
+    }
+    let demo_available = !demo_consumed(&state);
     if !path.exists() {
         return Ok(LicenseCheck {
             valid: false,
@@ -259,6 +348,7 @@ pub async fn license_check(state: State<'_, AppState>) -> Result<LicenseCheck, S
             public_key: None,
             expires_at: None,
             needs_activation: true,
+            demo_available,
         });
     }
 
@@ -277,6 +367,7 @@ pub async fn license_check(state: State<'_, AppState>) -> Result<LicenseCheck, S
                 public_key: Some(file.public_key),
                 expires_at: file.expires_at,
                 needs_activation: true,
+                demo_available,
             });
         }
     }
@@ -287,5 +378,6 @@ pub async fn license_check(state: State<'_, AppState>) -> Result<LicenseCheck, S
         public_key: Some(file.public_key),
         expires_at: file.expires_at,
         needs_activation: false,
+        demo_available,
     })
 }
