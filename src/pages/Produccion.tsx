@@ -401,7 +401,8 @@ export default function Produccion() {
                         <div className="min-w-0 flex-1">
                           <p className="truncate text-sm font-medium text-zinc-100">{p.name}</p>
                           <p className="text-[11px] text-zinc-500">
-                            {p.recipe.length > 0 ? `${p.recipe.length} ingredientes` : "sin receta"} · Costo fijo {fmtMoney(p.manualCost)}
+                            {p.recipe.length > 0 ? `${p.recipe.length} ingredientes` : "sin receta"} · Costo {fmtMoney(p.manualCost)}/u
+                            {(p.extraCostPerUnit ?? 0) > 0 ? ` (incl. ${fmtMoney(p.extraCostPerUnit ?? 0)} extras)` : ""}
                           </p>
                         </div>
                         <div className="text-right">
@@ -438,7 +439,8 @@ export default function Produccion() {
                         <div>
                           <h2 className="text-base font-semibold text-zinc-50">{selected.name}</h2>
                           <p className="mt-0.5 text-xs text-zinc-500">
-                            {selected.category} · Precio {fmtMoney(selected.price)} · Costo fijo {fmtMoney(selected.manualCost)}/u · Stock {fmtQty(selected.stock)} u
+                            {selected.category} · Precio {fmtMoney(selected.price)} · Costo {fmtMoney(selected.manualCost)}/u
+                            {(selected.extraCostPerUnit ?? 0) > 0 ? ` (incl. ${fmtMoney(selected.extraCostPerUnit ?? 0)} extras)` : ""} · Stock {fmtQty(selected.stock)} u
                           </p>
                         </div>
                         <Button size="sm" variant="outline" onClick={() => setAdjustOpen(true)}>
@@ -538,7 +540,9 @@ export default function Produccion() {
                               <div key={pr.id} className="flex items-center gap-3 px-5 py-2.5 text-xs">
                                 <span className="w-28 shrink-0 tabular-nums text-zinc-500">{fmtDateTime(pr.createdAt)}</span>
                                 <span className="font-medium tabular-nums text-emerald-400">+{fmtQty(pr.quantity)} u</span>
-                                <span className="min-w-0 flex-1 truncate text-zinc-500">{pr.note ?? `Costo mat. ${fmtMoney(pr.totalMaterialCost)}`}</span>
+                                <span className="min-w-0 flex-1 truncate text-zinc-500">
+                                  {pr.note ?? `Costo ${fmtMoney(pr.unitCost)}/u (mat. ${fmtMoney(pr.totalMaterialCost)}${(pr.totalExtraCost ?? 0) > 0 ? ` + extras ${fmtMoney(pr.totalExtraCost ?? 0)}` : ""})`}
+                                </span>
                               </div>
                             ))
                         )}
@@ -586,6 +590,7 @@ export default function Produccion() {
                         <p className="truncate text-sm font-medium text-zinc-100">{m.name}</p>
                         <p className="text-[11px] text-zinc-500">
                           {(m.recipe ?? []).length} insumos · Rinde {fmtQty(m.recipeYield)} {m.unit} · {fmtMoney(m.costPerUnit)}/{m.unit}
+                          {(m.extraCostPerUnit ?? 0) > 0 ? ` (incl. ${fmtMoney(m.extraCostPerUnit ?? 0)} extras)` : ""}
                         </p>
                       </div>
                       <div className="text-right">
@@ -621,7 +626,8 @@ export default function Produccion() {
                       <div>
                         <h2 className="text-base font-semibold text-zinc-50">{matSelected.name}</h2>
                         <p className="mt-0.5 text-xs text-zinc-500">
-                          Stock {fmtQty(matSelected.stock)} {matSelected.unit} · Costo {fmtMoney(matSelected.costPerUnit)}/{matSelected.unit} · Receta rinde {fmtQty(matSelected.recipeYield)} {matSelected.unit}
+                          Stock {fmtQty(matSelected.stock)} {matSelected.unit} · Costo {fmtMoney(matSelected.costPerUnit)}/{matSelected.unit}
+                          {(matSelected.extraCostPerUnit ?? 0) > 0 ? ` (incl. ${fmtMoney(matSelected.extraCostPerUnit ?? 0)} extras)` : ""} · Receta rinde {fmtQty(matSelected.recipeYield)} {matSelected.unit}
                         </p>
                       </div>
                       <Button size="sm" variant="outline" onClick={() => setCalcOpen((o) => !o)}>
@@ -651,8 +657,12 @@ export default function Produccion() {
                               <span className="text-zinc-500"> · limita {matEstimate.limitingMaterial}</span>
                             )}
                             <span className="block text-[11px] text-zinc-500">
-                              Costo lote base ({fmtQty(matEstimate.recipeYield)} {matEstimate.unit}):{" "}
-                              {fmtMoney(matEstimate.totalBatchCost)} · Costo/{matEstimate.unit}:{" "}
+                              Materiales lote base ({fmtQty(matEstimate.recipeYield)} {matEstimate.unit}):{" "}
+                              {fmtMoney(matEstimate.totalBatchCost)}
+                              {(matEstimate.extraCostPerUnit ?? 0) > 0 ? (
+                                <> + extras {fmtMoney(matEstimate.totalExtraBatchCost ?? 0)} ({fmtMoney(matEstimate.extraCostPerUnit ?? 0)}/{matEstimate.unit})</>
+                              ) : null}
+                              {" "}· Costo/{matEstimate.unit}:{" "}
                               {fmtMoney(matEstimate.unitCost)}
                             </span>
                           </span>
@@ -830,7 +840,10 @@ export default function Produccion() {
                         ))}
                         <p className="mt-1">
                           Y se sumarán <strong className="text-accent-400">{fmtQty(matQtyNum)} {matEstimate.unit}</strong> al stock de "{matSelected.name}"
-                          {" "}con costo <strong className="text-accent-400">{fmtMoney(matEstimate.unitCost)}/{matEstimate.unit}</strong>.
+                          {" "}con costo <strong className="text-accent-400">{fmtMoney(matEstimate.unitCost)}/{matEstimate.unit}</strong>
+                          {(matEstimate.extraCostPerUnit ?? 0) > 0 ? (
+                            <> (incl. {fmtMoney((matEstimate.extraCostPerUnit ?? 0) * matQtyNum)} extras)</>
+                          ) : null}.
                         </p>
                       </div>
                     )}
@@ -850,7 +863,7 @@ export default function Produccion() {
                               <span className="w-28 shrink-0 tabular-nums text-zinc-500">{fmtDateTime(pr.createdAt)}</span>
                               <span className="font-medium tabular-nums text-emerald-400">+{fmtQty(pr.quantity)} {pr.unit}</span>
                               <span className="min-w-0 flex-1 truncate text-zinc-500">
-                                {pr.note ?? `Costo ${fmtMoney(pr.totalMaterialCost)} (${fmtMoney(pr.unitCost)}/${pr.unit})`}
+                                {pr.note ?? `Costo ${fmtMoney(pr.unitCost)}/${pr.unit} (mat. ${fmtMoney(pr.totalMaterialCost)}${(pr.totalExtraCost ?? 0) > 0 ? ` + extras ${fmtMoney(pr.totalExtraCost ?? 0)}` : ""})`}
                               </span>
                             </div>
                           ))

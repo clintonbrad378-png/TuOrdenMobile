@@ -2,6 +2,23 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ExtraCost {
+    pub id: i64,
+    pub name: String,
+    pub kind: String,
+    pub amount: f64,
+}
+
+#[derive(Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ExtraCostInput {
+    pub name: String,
+    pub kind: String,
+    pub amount: f64,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Material {
     pub id: i64,
     pub name: String,
@@ -14,6 +31,10 @@ pub struct Material {
     pub is_elaborated: bool,
     pub recipe_yield: f64,
     pub recipe: Vec<MaterialRecipeItem>,
+    #[serde(default)]
+    pub extra_costs: Vec<ExtraCost>,
+    #[serde(default)]
+    pub extra_cost_per_unit: f64,
 }
 
 #[derive(Serialize)]
@@ -47,6 +68,8 @@ pub struct CreateMaterialInput {
     pub recipe_yield: f64,
     #[serde(default)]
     pub recipe: Vec<MaterialRecipeItemInput>,
+    #[serde(default)]
+    pub extra_costs: Vec<ExtraCostInput>,
 }
 
 #[derive(Deserialize)]
@@ -62,6 +85,8 @@ pub struct UpdateMaterialInput {
     pub recipe_yield: f64,
     #[serde(default)]
     pub recipe: Vec<MaterialRecipeItemInput>,
+    #[serde(default)]
+    pub extra_costs: Vec<ExtraCostInput>,
 }
 
 #[derive(Serialize)]
@@ -99,6 +124,10 @@ pub struct Product {
     pub stock: f64,
     pub min_stock: f64,
     pub manual_cost: f64,
+    #[serde(default)]
+    pub extra_costs: Vec<ExtraCost>,
+    #[serde(default)]
+    pub extra_cost_per_unit: f64,
 }
 
 #[derive(Deserialize)]
@@ -124,6 +153,8 @@ pub struct ProductInput {
     pub min_stock: f64,
     #[serde(default)]
     pub manual_cost: f64,
+    #[serde(default)]
+    pub extra_costs: Vec<ExtraCostInput>,
 }
 
 #[derive(Serialize)]
@@ -421,6 +452,8 @@ pub struct Production {
     pub quantity: f64,
     pub unit_cost: f64,
     pub total_material_cost: f64,
+    #[serde(default)]
+    pub total_extra_cost: f64,
     pub note: Option<String>,
     pub created_at: String,
 }
@@ -472,6 +505,8 @@ pub struct MaterialProduction {
     pub unit: String,
     pub unit_cost: f64,
     pub total_material_cost: f64,
+    #[serde(default)]
+    pub total_extra_cost: f64,
     pub note: Option<String>,
     pub created_at: String,
 }
@@ -508,5 +543,9 @@ pub struct MaterialProductionEstimate {
     pub limiting_material: Option<String>,
     pub total_batch_cost: f64,
     pub unit_cost: f64,
+    #[serde(default)]
+    pub extra_cost_per_unit: f64,
+    #[serde(default)]
+    pub total_extra_batch_cost: f64,
     pub items: Vec<MaterialProductionEstimateItem>,
 }

@@ -20,7 +20,88 @@ fn map_product(row: &rusqlite::Row) -> rusqlite::Result<Product> {
         stock: row.get::<_, f64>(8).unwrap_or(0.0),
         min_stock: row.get::<_, f64>(9).unwrap_or(0.0),
         manual_cost: row.get::<_, f64>(10).unwrap_or(0.0),
+        extra_costs: vec![],
+        extra_cost_per_unit: 0.0,
     })
+}
+
+fn normalize_extra_kind(s: &str) -> String {
+    match s.trim().to_lowercase().as_str() {
+        "mano_obra" | "mano de obra" | "mano-de-obra" => "mano_obra".to_string(),
+        "logistica" | "logística" => "logistica".to_string(),
+        "energia" | "energía" | "luz" | "gas" => "energia".to_string(),
+        _ => "otro".to_string(),
+    }
+}
+
+fn load_product_extras(conn: &Connection, product_id: i64) -> Result<Vec<ExtraCost>, String> {
+    let mut stmt = match conn.prepare(
+        "SELECT id, name, kind, amount FROM product_extra_costs WHERE product_id = ?1 ORDER BY id",
+    ) {
+        Ok(s) => s,
+        Err(e) => {
+            if e.to_string().contains("no such table") {
+                return Ok(vec![]);
+            }
+            return Err(e.to_string());
+        }
+    };
+    let rows = stmt
+        .query_map(params![product_id], |r| {
+            Ok(ExtraCost {
+                id: r.get(0)?,
+                name: r.get(1)?,
+                kind: r.get(2)?,
+                amount: r.get(3)?,
+            })
+        })
+        .map_err(|e| e.to_string())?;
+    rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+}
+
+fn product_extra_sum(costs: &[ExtraCost]) -> f64 {
+    costs.iter().map(|c| c.amount.max(0.0)).sum()
+}
+
+fn validate_product_extras(costs: &[ExtraCostInput]) -> Result<Vec<(String, String, f64)>, String> {
+    let mut out = Vec::with_capacity(costs.len());
+    for c in costs {
+        let name = c.name.trim().to_string();
+        if name.is_empty() {
+            return Err("Cada gasto extra debe tener nombre (ej. Mano de obra)".into());
+        }
+        if !(c.amount >= 0.0) || !c.amount.is_finite() {
+            return Err(format!("Monto inválido en gasto extra \"{name}\""));
+        }
+        if c.amount == 0.0 {
+            continue;
+        }
+        out.push((name, normalize_extra_kind(&c.kind), c.amount));
+    }
+    Ok(out)
+}
+
+fn save_product_extras(
+    conn: &Connection,
+    product_id: i64,
+    costs: &[ExtraCostInput],
+) -> Result<(), String> {
+    let cleaned = validate_product_extras(costs)?;
+    let mut stmt = conn
+        .prepare("INSERT INTO product_extra_costs (product_id, name, kind, amount) VALUES (?1, ?2, ?3, ?4)")
+        .map_err(|e| e.to_string())?;
+    for (name, kind, amount) in cleaned {
+        stmt.execute(params![product_id, name, kind, amount])
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+fn fill_product_extras(conn: &Connection, p: &mut Product) -> Result<(), String> {
+    let extras = load_product_extras(conn, p.id)?;
+    p.extra_cost_per_unit = product_extra_sum(&extras);
+    p.extra_costs = extras;
+    Ok(())
 }
 
 fn load_recipe(conn: &Connection, product_id: i64) -> Result<Vec<RecipeItem>, String> {
@@ -63,6 +144,7 @@ fn load_products(conn: &Connection, include_inactive: bool) -> Result<Vec<Produc
         rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?;
     for p in products.iter_mut() {
         p.recipe = load_recipe(conn, p.id)?;
+        fill_product_extras(conn, p)?;
     }
     Ok(products)
 }
@@ -133,9 +215,18 @@ fn recipe_cost(conn: &Connection, product_id: i64) -> Result<f64, String> {
 }
 
 fn sync_manual_cost(conn: &Connection, product_id: i64, tracks_stock: bool, fallback: f64) -> Result<(), String> {
-    // El costo del producto por stock NACE de su receta: se recalcula en el
-    // servidor para que nunca quede desfasado del costo real de materiales.
-    // Solo sin receta (revendido) se respeta el costo manual.
+    // El costo del producto por stock NACE de su receta + gastos extra por unidad:
+    // se recalcula en el servidor para que nunca quede desfasado.
+    // Solo sin receta (revendido) se usa costo manual + extras.
+    // Ganancia limpia: no hay que descontar estos gastos después.
+    let extra: f64 = conn
+        .query_row(
+            "SELECT COALESCE(SUM(amount), 0) FROM product_extra_costs WHERE product_id = ?1",
+            params![product_id],
+            |r| r.get(0),
+        )
+        .unwrap_or(0.0);
+    let extra = extra.max(0.0);
     let cost = if tracks_stock {
         let recipe_n: i64 = conn
             .query_row(
@@ -145,9 +236,9 @@ fn sync_manual_cost(conn: &Connection, product_id: i64, tracks_stock: bool, fall
             )
             .map_err(|e| e.to_string())?;
         if recipe_n > 0 {
-            recipe_cost(conn, product_id)?
+            recipe_cost(conn, product_id)? + extra
         } else {
-            fallback.max(0.0)
+            fallback.max(0.0) + extra
         }
     } else {
         0.0
@@ -204,6 +295,11 @@ pub async fn create_product(
     })?;
     let id = conn.last_insert_rowid();
     insert_recipe(&conn, id, &input.recipe)?;
+    // Validar extras antes de guardar para dar error temprano.
+    validate_product_extras(&input.extra_costs)?;
+    conn.execute("DELETE FROM product_extra_costs WHERE product_id = ?1", params![id])
+        .map_err(|e| e.to_string())?;
+    save_product_extras(&conn, id, &input.extra_costs)?;
     sync_manual_cost(&conn, id, input.tracks_stock, input.manual_cost)?;
 
     let mut product = conn
@@ -214,6 +310,7 @@ pub async fn create_product(
         )
         .map_err(|e| e.to_string())?;
     product.recipe = load_recipe(&conn, id)?;
+    fill_product_extras(&conn, &mut product)?;
     Ok(product)
 }
 
@@ -259,6 +356,10 @@ pub async fn update_product(
     conn.execute("DELETE FROM recipe_items WHERE product_id = ?1", params![id])
         .map_err(|e| e.to_string())?;
     insert_recipe(&conn, id, &input.recipe)?;
+    validate_product_extras(&input.extra_costs)?;
+    conn.execute("DELETE FROM product_extra_costs WHERE product_id = ?1", params![id])
+        .map_err(|e| e.to_string())?;
+    save_product_extras(&conn, id, &input.extra_costs)?;
     sync_manual_cost(&conn, id, input.tracks_stock, input.manual_cost)?;
 
     let mut product = conn
@@ -269,6 +370,7 @@ pub async fn update_product(
         )
         .map_err(|e| e.to_string())?;
     product.recipe = load_recipe(&conn, id)?;
+    fill_product_extras(&conn, &mut product)?;
     Ok(product)
 }
 
@@ -466,26 +568,50 @@ pub async fn produce_stock(
         needs.push((*mid, need, mname, mcost));
     }
 
+    // Gastos extra por unidad (mano de obra, logística...): ganancia limpia.
+    let extra_per_unit: f64 = tx
+        .query_row(
+            "SELECT COALESCE(SUM(amount), 0) FROM product_extra_costs WHERE product_id = ?1",
+            params![input.product_id],
+            |r| r.get(0),
+        )
+        .unwrap_or(0.0);
+    let total_extra_cost = extra_per_unit.max(0.0) * quantity;
     // Registrar producción primero para obtener su id y usarlo como referencia.
-    // El costo unitario NACE de la receta: costo real de materiales / unidades.
+    // El costo unitario NACE de receta + extras: (materiales + extras) / unidades.
     let batch_unit_cost = if quantity > 0.0 {
-        total_material_cost / quantity
+        (total_material_cost + total_extra_cost) / quantity
     } else {
         0.0
     };
-    let (prod_id, created_at): (i64, String) = tx
-        .query_row(
-            "INSERT INTO productions (product_id, quantity, unit_cost, total_material_cost, note) VALUES (?1, ?2, ?3, ?4, ?5) RETURNING id, created_at",
-            params![
-                input.product_id,
-                quantity,
-                batch_unit_cost,
-                total_material_cost,
-                input.note
-            ],
-            |r| Ok((r.get(0)?, r.get(1)?)),
-        )
-        .map_err(|e| e.to_string())?;
+    let (prod_id, created_at): (i64, String) = match tx.query_row(
+        "INSERT INTO productions (product_id, quantity, unit_cost, total_material_cost, total_extra_cost, note) VALUES (?1, ?2, ?3, ?4, ?5, ?6) RETURNING id, created_at",
+        params![
+            input.product_id,
+            quantity,
+            batch_unit_cost,
+            total_material_cost,
+            total_extra_cost,
+            input.note
+        ],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    ) {
+        Ok(v) => v,
+        Err(e) if e.to_string().contains("no such column") => tx
+            .query_row(
+                "INSERT INTO productions (product_id, quantity, unit_cost, total_material_cost, note) VALUES (?1, ?2, ?3, ?4, ?5) RETURNING id, created_at",
+                params![
+                    input.product_id,
+                    quantity,
+                    batch_unit_cost,
+                    total_material_cost,
+                    input.note
+                ],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .map_err(|e2| e2.to_string())?,
+        Err(e) => return Err(e.to_string()),
+    };
 
     // Descontar materiales con trazabilidad a la producción.
     {
@@ -523,6 +649,7 @@ pub async fn produce_stock(
         quantity,
         unit_cost: batch_unit_cost,
         total_material_cost,
+        total_extra_cost,
         note: input.note.clone(),
         created_at,
     })
@@ -577,6 +704,7 @@ pub async fn adjust_product_stock(
         )
         .map_err(|e| e.to_string())?;
     product.recipe = load_recipe(&conn, input.product_id)?;
+    fill_product_extras(&conn, &mut product)?;
     Ok(product)
 }
 
@@ -587,13 +715,19 @@ pub async fn list_productions(
 ) -> Result<Vec<Production>, String> {
     let limit = limit.unwrap_or(100).clamp(1, 500);
     let conn = state.db.lock().map_err(|_| "Error interno")?;
-    let mut stmt = conn
-        .prepare(
-            "SELECT pr.id, pr.product_id, p.name, pr.quantity, pr.unit_cost, pr.total_material_cost, pr.note, pr.created_at
+    let has_extra_col: bool = conn
+        .prepare("SELECT total_extra_cost FROM productions LIMIT 0")
+        .is_ok();
+    let sql = if has_extra_col {
+        "SELECT pr.id, pr.product_id, p.name, pr.quantity, pr.unit_cost, pr.total_material_cost, pr.total_extra_cost, pr.note, pr.created_at
              FROM productions pr JOIN products p ON p.id = pr.product_id
-             ORDER BY pr.id DESC LIMIT ?1",
-        )
-        .map_err(|e| e.to_string())?;
+             ORDER BY pr.id DESC LIMIT ?1"
+    } else {
+        "SELECT pr.id, pr.product_id, p.name, pr.quantity, pr.unit_cost, pr.total_material_cost, 0.0, pr.note, pr.created_at
+             FROM productions pr JOIN products p ON p.id = pr.product_id
+             ORDER BY pr.id DESC LIMIT ?1"
+    };
+    let mut stmt = conn.prepare(sql).map_err(|e| e.to_string())?;
     let rows = stmt
         .query_map(params![limit], |r| {
             Ok(Production {
@@ -603,8 +737,9 @@ pub async fn list_productions(
                 quantity: r.get(3)?,
                 unit_cost: r.get(4)?,
                 total_material_cost: r.get(5)?,
-                note: r.get(6)?,
-                created_at: r.get(7)?,
+                total_extra_cost: r.get(6).unwrap_or(0.0),
+                note: r.get(7)?,
+                created_at: r.get(8)?,
             })
         })
         .map_err(|e| e.to_string())?;

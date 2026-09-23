@@ -1,3 +1,18 @@
+export type ExtraCostKind = "mano_obra" | "logistica" | "energia" | "otro";
+
+export interface ExtraCost {
+  id: number;
+  name: string;
+  kind: ExtraCostKind | string;
+  amount: number;
+}
+
+export interface ExtraCostInput {
+  name: string;
+  kind: string;
+  amount: number;
+}
+
 export interface Material {
   id: number;
   name: string;
@@ -10,6 +25,8 @@ export interface Material {
   isElaborated: boolean;
   recipeYield: number;
   recipe: MaterialRecipeItem[];
+  extraCosts?: ExtraCost[];
+  extraCostPerUnit?: number;
 }
 
 export interface MaterialRecipeItem {
@@ -29,6 +46,7 @@ export interface CreateMaterialInput {
   isElaborated: boolean;
   recipeYield: number;
   recipe: { componentId: number; quantity: number }[];
+  extraCosts?: ExtraCostInput[];
 }
 
 export interface UpdateMaterialInput {
@@ -39,6 +57,7 @@ export interface UpdateMaterialInput {
   isElaborated: boolean;
   recipeYield: number;
   recipe: { componentId: number; quantity: number }[];
+  extraCosts?: ExtraCostInput[];
 }
 
 export interface MaterialProduction {
@@ -49,6 +68,7 @@ export interface MaterialProduction {
   unit: string;
   unitCost: number;
   totalMaterialCost: number;
+  totalExtraCost?: number;
   note: string | null;
   createdAt: string;
 }
@@ -73,6 +93,8 @@ export interface MaterialProductionEstimate {
   limitingMaterial: string | null;
   totalBatchCost: number;
   unitCost: number;
+  extraCostPerUnit?: number;
+  totalExtraBatchCost?: number;
   items: MaterialProductionEstimateItem[];
 }
 
@@ -105,6 +127,8 @@ export interface Product {
   stock: number;
   minStock: number;
   manualCost: number;
+  extraCosts?: ExtraCost[];
+  extraCostPerUnit?: number;
 }
 
 export interface RecipeItemInput {
@@ -122,6 +146,7 @@ export interface ProductInput {
   stock: number;
   minStock: number;
   manualCost: number;
+  extraCosts?: ExtraCostInput[];
 }
 
 export interface Sale {
@@ -390,6 +415,7 @@ export interface Production {
   quantity: number;
   unitCost: number;
   totalMaterialCost: number;
+  totalExtraCost?: number;
   note: string | null;
   createdAt: string;
 }

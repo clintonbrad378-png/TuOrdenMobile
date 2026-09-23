@@ -30,6 +30,7 @@ import {
   cn,
   useToast,
 } from "../components/ui";
+import ExtraCostsEditor, { extraTotal, toExtraInputs, type ExtraRow } from "../components/ExtraCostsEditor";
 
 type Tab = "inventario" | "movimientos";
 
@@ -64,6 +65,7 @@ export default function Materiales() {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [form, setForm] = useState(emptyForm);
   const [recipe, setRecipe] = useState<RecipeRow[]>([]);
+  const [extras, setExtras] = useState<ExtraRow[]>([]);
   const [saving, setSaving] = useState(false);
 
   const [adjustTarget, setAdjustTarget] = useState<Material | null>(null);
@@ -99,6 +101,7 @@ export default function Materiales() {
     setEditingId(null);
     setForm(emptyForm);
     setRecipe([]);
+    setExtras([]);
     setEditorOpen(true);
   };
 
@@ -114,6 +117,13 @@ export default function Materiales() {
       recipeYield:
         m.isElaborated && m.recipeYield > 0 ? String(m.recipeYield) : "",
     });
+    setExtras(
+      (m.extraCosts ?? []).map((e) => ({
+        name: e.name,
+        kind: e.kind || "otro",
+        amount: String(e.amount),
+      })),
+    );
     setRecipe(
       (m.recipe ?? []).map((r) => {
         const comp = (materials ?? []).find((x) => x.id === r.materialId) ?? null;
@@ -195,6 +205,7 @@ export default function Materiales() {
     }
     setSaving(true);
     try {
+      const extraInputs = toExtraInputs(extras);
       if (editingId === null) {
         await api.createMaterial({
           name: form.name.trim(),
@@ -205,6 +216,7 @@ export default function Materiales() {
           isElaborated: form.isElaborated,
           recipeYield: form.isElaborated ? Number(form.recipeYield) || 0 : 0,
           recipe: converted,
+          extraCosts: extraInputs,
         });
         toast("success", "Material creado");
       } else {
@@ -216,6 +228,7 @@ export default function Materiales() {
           isElaborated: form.isElaborated,
           recipeYield: form.isElaborated ? Number(form.recipeYield) || 0 : 0,
           recipe: converted,
+          extraCosts: extraInputs,
         });
         toast("success", "Material actualizado");
       }
@@ -365,6 +378,9 @@ export default function Materiales() {
                           Unidad: {m.unit} · Mín: {fmtQty(m.minStock)}
                           {m.isElaborated
                             ? ` · Rinde ${fmtQty(m.recipeYield)} ${m.unit} · ${(m.recipe ?? []).length} insumos`
+                            : ""}
+                          {(m.extraCostPerUnit ?? 0) > 0
+                            ? ` · +${fmtMoney(m.extraCostPerUnit ?? 0)} extras/u`
                             : ""}
                         </p>
                         {equiv && (
@@ -601,9 +617,17 @@ export default function Materiales() {
                 <strong className="ml-1 text-zinc-200">{fmtMoney(recipeCostForYield)}</strong>
                 {Number(form.recipeYield) > 0 && (
                   <span className="ml-1">
-                    · Costo/{form.unit}:{" "}
-                    <strong className="text-accent-400">
+                    · Materiales/{form.unit}:{" "}
+                    <strong className="text-zinc-200">
                       {fmtMoney(recipeCostForYield / Number(form.recipeYield))}
+                    </strong>
+                    {" + "}
+                    <strong className="text-accent-400">
+                      {fmtMoney(extraTotal(extras))} extras
+                    </strong>
+                    {" = "}
+                    <strong className="text-accent-400">
+                      {fmtMoney(recipeCostForYield / Number(form.recipeYield) + extraTotal(extras))}/{form.unit}
                     </strong>
                   </span>
                 )}
@@ -711,6 +735,7 @@ export default function Materiales() {
                 </div>
               );
             })}
+            <ExtraCostsEditor rows={extras} onChange={setExtras} unitLabel={form.unit || "unidad"} />
           </div>
         )}
       </Modal>

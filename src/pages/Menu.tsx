@@ -26,6 +26,7 @@ import {
   cn,
   useToast,
 } from "../components/ui";
+import ExtraCostsEditor, { extraTotal, toExtraInputs, type ExtraRow } from "../components/ExtraCostsEditor";
 
 interface RecipeRow {
   materialId: number | null;
@@ -172,6 +173,7 @@ export default function Menu() {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [form, setForm] = useState(emptyForm);
   const [recipe, setRecipe] = useState<RecipeRow[]>([]);
+  const [extras, setExtras] = useState<ExtraRow[]>([]);
   const [saving, setSaving] = useState(false);
 
   const [deleteTarget, setDeleteTarget] = useState<Product | null>(null);
@@ -214,6 +216,7 @@ export default function Menu() {
     setEditingId(null);
     setForm(emptyForm);
     setRecipe([]);
+    setExtras([]);
     setEditorOpen(true);
   };
 
@@ -229,6 +232,13 @@ export default function Menu() {
       minStock: String(p.minStock ?? 0),
       manualCost: String(p.manualCost ?? 0),
     });
+    setExtras(
+      (p.extraCosts ?? []).map((e) => ({
+        name: e.name,
+        kind: e.kind || "otro",
+        amount: String(e.amount),
+      })),
+    );
     setRecipe(
       p.recipe.map((r) => {
         const mat = materials.find((m) => m.id === r.materialId) ?? null;
@@ -268,18 +278,21 @@ export default function Menu() {
   }, [recipe, materials]);
 
   const priceNum = Number(form.price) || 0;
+  const extraPerUnit = extraTotal(extras);
+  const fullRecipeCost = recipeCost + extraPerUnit;
   const margin =
-    priceNum > 0 && recipeCost > 0 ? ((priceNum - recipeCost) / priceNum) * 100 : null;
-  const profitPerUnit = Math.max(0, priceNum - recipeCost);
+    priceNum > 0 && fullRecipeCost > 0 ? ((priceNum - fullRecipeCost) / priceNum) * 100 : null;
+  const profitPerUnit = Math.max(0, priceNum - fullRecipeCost);
 
-  // El costo del producto por stock NACE de la receta: siempre es el costo
-  // de receta vigente. Solo si no hay receta (revendido) se usa costo manual.
+  // El costo del producto NACE de receta + extras por unidad (mano de obra,
+  // logística...). Solo sin receta (revendido) se usa costo manual + extras.
+  // Ganancia limpia: no se descuenta después en Gastos.
   const hasRecipe = recipe.length > 0;
   const effectiveUnitCost = form.tracksStock
     ? hasRecipe
-      ? recipeCost
-      : Number(form.manualCost) || 0
-    : recipeCost;
+      ? fullRecipeCost
+      : (Number(form.manualCost) || 0) + extraPerUnit
+    : fullRecipeCost;
   const stockMargin =
     form.tracksStock && priceNum > 0 && effectiveUnitCost > 0
       ? ((priceNum - effectiveUnitCost) / priceNum) * 100
@@ -324,8 +337,9 @@ export default function Menu() {
       tracksStock: form.tracksStock,
       stock: editingId === null ? Number(form.stock) || 0 : 0,
       minStock: form.tracksStock ? Number(form.minStock) || 0 : 0,
-      // Costo nace de la receta; solo manual cuando no hay receta.
-      manualCost: form.tracksStock ? (hasRecipe ? recipeCost : Number(form.manualCost) || 0) : 0,
+      // Costo nace de receta + extras; solo manual (+extras) cuando no hay receta.
+      manualCost: form.tracksStock ? (hasRecipe ? fullRecipeCost : Number(form.manualCost) || 0) : 0,
+      extraCosts: toExtraInputs(extras),
     };
     try {
       if (editingId === null) await api.createProduct(payload);
@@ -437,6 +451,7 @@ export default function Menu() {
                     {p.recipe.length > 0
                       ? `${p.recipe.length} ingrediente${p.recipe.length > 1 ? "s" : ""}`
                       : "sin receta"}
+                    {(p.extraCostPerUnit ?? 0) > 0 ? ` · +${fmtMoney(p.extraCostPerUnit ?? 0)} extras` : ""}
                     {p.tracksStock && p.recipe.length > 0 ? " · para producir" : ""}
                   </p>
                 </div>
@@ -593,7 +608,7 @@ export default function Menu() {
 
         {form.tracksStock && hasRecipe && (
           <p className="rounded-lg border border-accent-500/20 bg-accent-500/[0.06] px-3 py-2 text-xs text-accent-400/90">
-            Costo por unidad = costo de receta ({fmtMoney(recipeCost)}). Se calcula solo y se usa en ganancia, ventas y producción.
+            Costo por unidad = materiales ({fmtMoney(recipeCost)}) + extras ({fmtMoney(extraPerUnit)}) = {fmtMoney(fullRecipeCost)}. Se calcula solo y se usa en ganancia, ventas y producción.
           </p>
         )}
 
@@ -711,11 +726,11 @@ export default function Menu() {
             );
           })}
 
-          {(recipeCost > 0 || margin !== null) && !form.tracksStock && (
+          {(recipeCost > 0 || extraPerUnit > 0 || margin !== null) && !form.tracksStock && (
             <div className="flex items-center justify-between rounded-xl border border-white/[0.06] bg-surface-800 px-4 py-2.5 text-xs">
               <span className="text-zinc-400">
-                Costo de receta:{" "}
-                <strong className="text-zinc-100">{fmtMoney(recipeCost)}</strong>
+                Costo: materiales {fmtMoney(recipeCost)} + extras {fmtMoney(extraPerUnit)} ={" "}
+                <strong className="text-zinc-100">{fmtMoney(fullRecipeCost)}</strong>
                 <span className="mx-2 text-zinc-600">·</span>
                 Ganancia estimada:{" "}
                 <strong className="text-accent-400">+{fmtMoney(profitPerUnit)}</strong> / unidad
@@ -730,7 +745,7 @@ export default function Menu() {
           {form.tracksStock && (
             <div className="flex items-center justify-between rounded-xl border border-white/[0.06] bg-surface-800 px-4 py-2.5 text-xs">
               <span className="text-zinc-400">
-                Costo unidad (de receta):{" "}
+                Costo unidad (materiales + extras):{" "}
                 <strong className="text-zinc-100">{fmtMoney(effectiveUnitCost)}</strong>
                 <span className="mx-2 text-zinc-600">·</span>
                 Ganancia:{" "}
@@ -743,6 +758,7 @@ export default function Menu() {
               )}
             </div>
           )}
+          <ExtraCostsEditor rows={extras} onChange={setExtras} unitLabel="unidad" />
         </div>
       </Modal>
 

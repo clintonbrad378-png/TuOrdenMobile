@@ -211,6 +211,31 @@ CREATE INDEX IF NOT EXISTS idx_mat_recipe_component ON material_recipe_items(com
 CREATE INDEX IF NOT EXISTS idx_mat_prod_material ON material_productions(material_id);
 CREATE INDEX IF NOT EXISTS idx_mat_prod_created ON material_productions(created_at);
 "#;
+
+const MIGRATION_V9: &str = r#"
+-- Costos extra por unidad (mano de obra, logistica, otros) que se suman
+-- a la receta para que la ganancia quede limpia sin descontarlos despues.
+-- amount = costo extra POR unidad de salida (unidad de stock del material
+-- o unidad del producto). Se hornea en cost_per_unit / manual_cost / unit_cost.
+CREATE TABLE IF NOT EXISTS material_extra_costs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  material_id INTEGER NOT NULL REFERENCES materials(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  kind TEXT NOT NULL DEFAULT 'otro',
+  amount REAL NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS product_extra_costs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  kind TEXT NOT NULL DEFAULT 'otro',
+  amount REAL NOT NULL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_mat_extra_material ON material_extra_costs(material_id);
+CREATE INDEX IF NOT EXISTS idx_prod_extra_product ON product_extra_costs(product_id);
+"#;
 pub fn init_db(path: &std::path::Path) -> Result<Connection, Box<dyn std::error::Error>> {
     let conn = Connection::open(path)?;
     conn.pragma_update(None, "foreign_keys", "ON")?;
@@ -251,6 +276,25 @@ fn migrate(conn: &Connection) -> Result<(), Box<dyn std::error::Error>> {
     if version < 8 {
         conn.execute_batch(MIGRATION_V8)?;
         conn.pragma_update(None, "user_version", 8)?;
+    }
+    if version < 9 {
+        conn.execute_batch(MIGRATION_V9)?;
+        // Tolerar reintentos si la columna ya existe (migración parcial previa).
+        for sql in [
+            "ALTER TABLE material_productions ADD COLUMN total_extra_cost REAL NOT NULL DEFAULT 0",
+            "ALTER TABLE productions ADD COLUMN total_extra_cost REAL NOT NULL DEFAULT 0",
+        ] {
+            match conn.execute_batch(sql) {
+                Ok(_) => {},
+                Err(e) => {
+                    let msg = e.to_string();
+                    if !(msg.contains("duplicate column") || msg.contains("already exists")) {
+                        return Err(Box::new(e));
+                    }
+                }
+            }
+        }
+        conn.pragma_update(None, "user_version", 9)?;
     }
     Ok(())
 }

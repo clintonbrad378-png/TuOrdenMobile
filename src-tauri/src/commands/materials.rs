@@ -44,7 +44,95 @@ fn map_material(row: &rusqlite::Row) -> rusqlite::Result<Material> {
         is_elaborated: row.get::<_, i64>(8).unwrap_or(0) != 0,
         recipe_yield: row.get::<_, f64>(9).unwrap_or(0.0),
         recipe: vec![],
+        extra_costs: vec![],
+        extra_cost_per_unit: 0.0,
     })
+}
+
+fn normalize_extra_kind(s: &str) -> String {
+    match s.trim().to_lowercase().as_str() {
+        "mano_obra" | "mano de obra" | "mano-de-obra" => "mano_obra".to_string(),
+        "logistica" | "logística" => "logistica".to_string(),
+        "energia" | "energía" | "luz" | "gas" => "energia".to_string(),
+        _ => "otro".to_string(),
+    }
+}
+
+fn load_material_extras(
+    conn: &rusqlite::Connection,
+    material_id: i64,
+) -> Result<Vec<ExtraCost>, String> {
+    let mut stmt = match conn.prepare(
+        "SELECT id, name, kind, amount FROM material_extra_costs WHERE material_id = ?1 ORDER BY id",
+    ) {
+        Ok(s) => s,
+        Err(e) => {
+            // Tabla aún no existe (DB anterior a V9 sin migrar): tratar como sin extras.
+            if e.to_string().contains("no such table") {
+                return Ok(vec![]);
+            }
+            return Err(e.to_string());
+        }
+    };
+    let rows = stmt
+        .query_map(rusqlite::params![material_id], |r| {
+            Ok(ExtraCost {
+                id: r.get(0)?,
+                name: r.get(1)?,
+                kind: r.get(2)?,
+                amount: r.get(3)?,
+            })
+        })
+        .map_err(|e| e.to_string())?;
+    rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+}
+
+fn extra_sum(costs: &[ExtraCost]) -> f64 {
+    costs.iter().map(|c| c.amount.max(0.0)).sum()
+}
+
+fn validate_extra_costs(costs: &[ExtraCostInput]) -> Result<Vec<(String, String, f64)>, String> {
+    let mut out = Vec::with_capacity(costs.len());
+    for c in costs {
+        let name = c.name.trim().to_string();
+        if name.is_empty() {
+            return Err("Cada gasto extra debe tener nombre (ej. Mano de obra)".into());
+        }
+        if !(c.amount >= 0.0) || !c.amount.is_finite() {
+            return Err(format!("Monto inválido en gasto extra \"{name}\""));
+        }
+        if c.amount == 0.0 {
+            continue;
+        }
+        out.push((name, normalize_extra_kind(&c.kind), c.amount));
+    }
+    Ok(out)
+}
+
+fn save_material_extras(
+    conn: &rusqlite::Connection,
+    material_id: i64,
+    costs: &[ExtraCostInput],
+) -> Result<(), String> {
+    let cleaned = validate_extra_costs(costs)?;
+    let mut stmt = conn
+        .prepare("INSERT INTO material_extra_costs (material_id, name, kind, amount) VALUES (?1, ?2, ?3, ?4)")
+        .map_err(|e| e.to_string())?;
+    for (name, kind, amount) in cleaned {
+        stmt.execute(params![material_id, name, kind, amount])
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+fn fill_material_extras(
+    conn: &rusqlite::Connection,
+    mat: &mut Material,
+) -> Result<(), String> {
+    let extras = load_material_extras(conn, mat.id)?;
+    mat.extra_cost_per_unit = extra_sum(&extras);
+    mat.extra_costs = extras;
+    Ok(())
 }
 
 fn load_material_recipe(
@@ -174,6 +262,7 @@ pub async fn list_materials(state: State<'_, AppState>) -> Result<Vec<Material>,
         rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?;
     for m in mats.iter_mut() {
         m.recipe = load_material_recipe(&conn, m.id)?;
+        fill_material_extras(&conn, m)?;
     }
     Ok(mats)
 }
@@ -224,6 +313,10 @@ pub async fn create_material(
     if input.is_elaborated {
         insert_material_recipe(&tx, id, &input.recipe)?;
     }
+    // Gastos extra por unidad (mano de obra, logística...). Solo tienen
+    // efecto en elaborados; en materia prima se guardan igual para no perderlos
+    // si luego se marca como elaborado.
+    save_material_extras(&tx, id, &input.extra_costs)?;
 
     if input.stock != 0.0 {
         tx.execute(
@@ -242,6 +335,7 @@ pub async fn create_material(
         )
         .map_err(|e| e.to_string())?;
     mat.recipe = load_material_recipe(&conn, id)?;
+    fill_material_extras(&conn, &mut mat)?;
     Ok(mat)
 }
 
@@ -314,6 +408,12 @@ pub async fn update_material(
     if input.is_elaborated {
         insert_material_recipe(&tx, id, &input.recipe)?;
     }
+    tx.execute(
+        "DELETE FROM material_extra_costs WHERE material_id = ?1",
+        params![id],
+    )
+    .map_err(|e| e.to_string())?;
+    save_material_extras(&tx, id, &input.extra_costs)?;
     tx.commit().map_err(|e| e.to_string())?;
 
     let mut mat = conn
@@ -324,6 +424,7 @@ pub async fn update_material(
         )
         .map_err(|e| e.to_string())?;
     mat.recipe = load_material_recipe(&conn, id)?;
+    fill_material_extras(&conn, &mut mat)?;
     Ok(mat)
 }
 
@@ -393,6 +494,7 @@ pub async fn adjust_stock(
         )
         .map_err(|e| e.to_string())?;
     mat.recipe = load_material_recipe(&conn, material_id)?;
+    fill_material_extras(&conn, &mut mat)?;
     Ok(mat)
 }
 
@@ -479,6 +581,7 @@ pub async fn receive_material(
         )
         .map_err(|e| e.to_string())?;
     mat.recipe = load_material_recipe(&conn, input.material_id)?;
+    fill_material_extras(&conn, &mut mat)?;
     Ok(mat)
 }
 
@@ -542,6 +645,7 @@ pub async fn waste_material(
         )
         .map_err(|e| e.to_string())?;
     mat.recipe = load_material_recipe(&conn, input.material_id)?;
+    fill_material_extras(&conn, &mut mat)?;
     Ok(mat)
 }
 
@@ -714,6 +818,8 @@ fn estimate_material_for(
             limiting_material: None,
             total_batch_cost: 0.0,
             unit_cost: 0.0,
+            extra_cost_per_unit: extra_sum(&load_material_extras(conn, material_id).unwrap_or_default()),
+            total_extra_batch_cost: 0.0,
             items: vec![],
         });
     }
@@ -744,11 +850,15 @@ fn estimate_material_for(
         });
     }
     let max_output = if max_output.is_finite() { max_output.max(0.0) } else { 0.0 };
-    let unit_cost = if recipe_yield > 0.0 {
+    // Costos extra por unidad (mano de obra, logística...): se suman al costo
+    // de materiales para que la ganancia quede limpia.
+    let extra_per_unit = extra_sum(&load_material_extras(conn, material_id).unwrap_or_default());
+    let material_per_unit = if recipe_yield > 0.0 {
         total_batch_cost / recipe_yield
     } else {
         0.0
     };
+    let unit_cost = material_per_unit + extra_per_unit;
     Ok(MaterialProductionEstimate {
         material_id,
         material_name: mname,
@@ -758,6 +868,8 @@ fn estimate_material_for(
         limiting_material: limiting,
         total_batch_cost,
         unit_cost,
+        extra_cost_per_unit: extra_per_unit,
+        total_extra_batch_cost: extra_per_unit * recipe_yield,
         items,
     })
 }
@@ -843,25 +955,49 @@ pub async fn produce_material(
         needs.push((*cid, need, cname, ccost));
     }
 
-    // Costo por unidad del lote: total / cantidad creada (idea del usuario).
+    // Costos extra por unidad (mano de obra, logística...): ganancia limpia.
+    let extra_per_unit: f64 = tx
+        .query_row(
+            "SELECT COALESCE(SUM(amount), 0) FROM material_extra_costs WHERE material_id = ?1",
+            params![input.material_id],
+            |r| r.get(0),
+        )
+        .unwrap_or(0.0);
+    let total_extra_cost = extra_per_unit.max(0.0) * input.quantity;
+    // Costo por unidad del lote: (materiales + extras) / cantidad creada.
     let batch_unit_cost = if input.quantity > 0.0 {
-        total_material_cost / input.quantity
+        (total_material_cost + total_extra_cost) / input.quantity
     } else {
         0.0
     };
-    let (prod_id, created_at): (i64, String) = tx
-        .query_row(
-            "INSERT INTO material_productions (material_id, quantity, unit_cost, total_material_cost, note) VALUES (?1, ?2, ?3, ?4, ?5) RETURNING id, created_at",
-            params![
-                input.material_id,
-                input.quantity,
-                batch_unit_cost,
-                total_material_cost,
-                input.note
-            ],
-            |r| Ok((r.get(0)?, r.get(1)?)),
-        )
-        .map_err(|e| e.to_string())?;
+    let (prod_id, created_at): (i64, String) = match tx.query_row(
+        "INSERT INTO material_productions (material_id, quantity, unit_cost, total_material_cost, total_extra_cost, note) VALUES (?1, ?2, ?3, ?4, ?5, ?6) RETURNING id, created_at",
+        params![
+            input.material_id,
+            input.quantity,
+            batch_unit_cost,
+            total_material_cost,
+            total_extra_cost,
+            input.note
+        ],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    ) {
+        Ok(v) => v,
+        Err(e) if e.to_string().contains("no such column") => tx
+            .query_row(
+                "INSERT INTO material_productions (material_id, quantity, unit_cost, total_material_cost, note) VALUES (?1, ?2, ?3, ?4, ?5) RETURNING id, created_at",
+                params![
+                    input.material_id,
+                    input.quantity,
+                    batch_unit_cost,
+                    total_material_cost,
+                    input.note
+                ],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .map_err(|e2| e2.to_string())?,
+        Err(e) => return Err(e.to_string()),
+    };
 
     {
         let mut upd = tx
@@ -899,6 +1035,7 @@ pub async fn produce_material(
         unit,
         unit_cost: batch_unit_cost,
         total_material_cost,
+        total_extra_cost,
         note: input.note.clone(),
         created_at,
     })
@@ -911,13 +1048,21 @@ pub async fn list_material_productions(
 ) -> Result<Vec<MaterialProduction>, String> {
     let limit = limit.unwrap_or(100).clamp(1, 500);
     let conn = state.db.lock().map_err(|_| "Error interno")?;
-    let mut stmt = conn
-        .prepare(
-            "SELECT mp.id, mp.material_id, m.name, mp.quantity, m.unit, mp.unit_cost, mp.total_material_cost, mp.note, mp.created_at
+    // total_extra_cost puede no existir si la migración V9 aún no corrió:
+    // se detecta por pragma y se usa 0 como fallback.
+    let has_extra_col: bool = conn
+        .prepare("SELECT total_extra_cost FROM material_productions LIMIT 0")
+        .is_ok();
+    let sql = if has_extra_col {
+        "SELECT mp.id, mp.material_id, m.name, mp.quantity, m.unit, mp.unit_cost, mp.total_material_cost, mp.total_extra_cost, mp.note, mp.created_at
              FROM material_productions mp JOIN materials m ON m.id = mp.material_id
-             ORDER BY mp.id DESC LIMIT ?1",
-        )
-        .map_err(|e| e.to_string())?;
+             ORDER BY mp.id DESC LIMIT ?1"
+    } else {
+        "SELECT mp.id, mp.material_id, m.name, mp.quantity, m.unit, mp.unit_cost, mp.total_material_cost, 0.0, mp.note, mp.created_at
+             FROM material_productions mp JOIN materials m ON m.id = mp.material_id
+             ORDER BY mp.id DESC LIMIT ?1"
+    };
+    let mut stmt = conn.prepare(sql).map_err(|e| e.to_string())?;
     let rows = stmt
         .query_map(params![limit], |r| {
             Ok(MaterialProduction {
@@ -928,8 +1073,9 @@ pub async fn list_material_productions(
                 unit: r.get(4)?,
                 unit_cost: r.get(5)?,
                 total_material_cost: r.get(6)?,
-                note: r.get(7)?,
-                created_at: r.get(8)?,
+                total_extra_cost: r.get(7).unwrap_or(0.0),
+                note: r.get(8)?,
+                created_at: r.get(9)?,
             })
         })
         .map_err(|e| e.to_string())?;

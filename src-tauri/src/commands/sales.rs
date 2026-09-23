@@ -97,18 +97,30 @@ fn recipe_count(tx: &rusqlite::Transaction, product_id: i64) -> Result<i64, Stri
     .map_err(|e| e.to_string())
 }
 
-/// Costo por unidad para ventas y reportes: SIEMPRE nace de la receta cuando
-/// el producto tiene receta (directo o por stock). Solo sin receta se usa el
-/// costo manual (producto revendido por stock).
+/// Costo por unidad para ventas y reportes: receta (materiales) + gastos extra
+/// por unidad (mano de obra, logística...). Solo sin receta se usa el costo
+/// manual (producto revendido por stock, que ya incluye extras vía sync).
+/// Ganancia limpia: no hay que descontar estos gastos después.
 fn sale_unit_cost(
     tx: &rusqlite::Transaction,
     product_id: i64,
     manual_cost: f64,
+    tracks_stock: bool,
 ) -> Result<f64, String> {
+    let extra: f64 = tx
+        .query_row(
+            "SELECT COALESCE(SUM(amount), 0) FROM product_extra_costs WHERE product_id = ?1",
+            params![product_id],
+            |r| r.get(0),
+        )
+        .unwrap_or(0.0);
+    let extra = extra.max(0.0);
     if recipe_count(tx, product_id)? > 0 {
-        recipe_unit_cost(tx, product_id)
-    } else {
+        Ok(recipe_unit_cost(tx, product_id)? + extra)
+    } else if tracks_stock {
         Ok(manual_cost)
+    } else {
+        Ok(extra)
     }
 }
 
@@ -278,7 +290,7 @@ pub async fn create_sale(
     for (item, info) in &loaded {
         let subtotal = info.price * item.quantity as f64;
         total += subtotal;
-        let unit_cost = sale_unit_cost(&tx, info.id, info.manual_cost)?;
+        let unit_cost = sale_unit_cost(&tx, info.id, info.manual_cost, info.tracks_stock)?;
         lines.push(LineRow {
             name: info.name.clone(),
             price: info.price,
@@ -552,7 +564,7 @@ pub async fn update_sale(
     for (item, info) in &loaded {
         let subtotal = info.price * item.quantity as f64;
         total += subtotal;
-        let unit_cost = sale_unit_cost(&tx, info.id, info.manual_cost)?;
+        let unit_cost = sale_unit_cost(&tx, info.id, info.manual_cost, info.tracks_stock)?;
         lines.push(LineRow {
             name: info.name.clone(),
             price: info.price,
@@ -644,7 +656,7 @@ pub async fn create_credit_sale(
     for (item, info) in &loaded {
         let subtotal = info.price * item.quantity as f64;
         total += subtotal;
-        let unit_cost = sale_unit_cost(&tx, info.id, info.manual_cost)?;
+        let unit_cost = sale_unit_cost(&tx, info.id, info.manual_cost, info.tracks_stock)?;
         lines.push(CreditLineRow {
             name: info.name.clone(),
             price: info.price,
