@@ -3,16 +3,18 @@ import {
   ArrowDownUp,
   Boxes,
   ClipboardList,
+  Package,
   Pencil,
   Plus,
   Search,
   Trash2,
 } from "lucide-react";
 import { api } from "../lib/api";
-import type { Material, Movement } from "../lib/types";
+import type { Material, Movement, Product } from "../lib/types";
 import { errMsg, fmtDateTime, fmtMoney, fmtQty } from "../lib/format";
 import { REASON_LABELS, UNITS } from "../lib/constants";
 import { compatibleUnits, convertQty, costEquivalents, stockEquivalents, unitFamily } from "../lib/units";
+import { trimFloat } from "../lib/numbers";
 import {
   Badge,
   Button,
@@ -28,11 +30,12 @@ import {
   Switch,
   Tabs,
   cn,
+  useFinePointer,
   useToast,
 } from "../components/ui";
 import ExtraCostsEditor, { extraTotal, toExtraInputs, type ExtraRow } from "../components/ExtraCostsEditor";
 
-type Tab = "inventario" | "movimientos";
+type Tab = "inventario" | "productos" | "movimientos";
 
 interface RecipeRow {
   componentId: number | null;
@@ -58,6 +61,7 @@ function defaultRecipeUnit(mat: Material | null | undefined): string {
 export default function Materiales() {
   const [tab, setTab] = useState<Tab>("inventario");
   const [materials, setMaterials] = useState<Material[] | null>(null);
+  const [products, setProducts] = useState<Product[] | null>(null);
   const [movements, setMovements] = useState<Movement[]>([]);
   const [search, setSearch] = useState("");
 
@@ -73,15 +77,28 @@ export default function Materiales() {
   const [adjustAmount, setAdjustAmount] = useState("");
   const [adjusting, setAdjusting] = useState(false);
 
+  // Ajuste de stock de productos (ej. hamburguesas) sin salir de Materiales.
+  const [prodAdjustTarget, setProdAdjustTarget] = useState<Product | null>(null);
+  const [prodAdjustMode, setProdAdjustMode] = useState<"entrada" | "salida">("entrada");
+  const [prodAdjustQty, setProdAdjustQty] = useState("");
+  const [prodAdjusting, setProdAdjusting] = useState(false);
+
   const [deleteTarget, setDeleteTarget] = useState<Material | null>(null);
   const [deleting, setDeleting] = useState(false);
   const toast = useToast();
+  // En móvil no se abre el teclado solo al abrir el modal (taparía el contenido).
+  const isDesktop = useFinePointer();
 
   const load = useCallback(async () => {
     try {
-      const [mats, movs] = await Promise.all([api.listMaterials(), api.listMovements(100)]);
+      const [mats, movs, prods] = await Promise.all([
+        api.listMaterials(),
+        api.listMovements(100),
+        api.listProducts(true),
+      ]);
       setMaterials(mats);
       setMovements(movs);
+      setProducts(prods);
     } catch (e) {
       toast("error", errMsg(e));
     }
@@ -97,6 +114,15 @@ export default function Materiales() {
     return (materials ?? []).filter((m) => q === "" || m.name.toLowerCase().includes(q));
   }, [materials, search]);
 
+  const stockProducts = useMemo(() => (products ?? []).filter((p) => p.tracksStock), [products]);
+
+  const filteredProducts = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return stockProducts.filter(
+      (p) => q === "" || p.name.toLowerCase().includes(q) || p.category.toLowerCase().includes(q),
+    );
+  }, [stockProducts, search]);
+
   const openCreate = () => {
     setEditingId(null);
     setForm(emptyForm);
@@ -110,7 +136,7 @@ export default function Materiales() {
     setForm({
       name: m.name,
       unit: m.unit,
-      stock: "",
+      stock: String(trimFloat(m.stock)),
       minStock: String(m.minStock),
       costPerUnit: String(m.costPerUnit),
       isElaborated: m.isElaborated ?? false,
@@ -134,7 +160,9 @@ export default function Materiales() {
             : r.quantity;
         return {
           componentId: r.materialId,
-          quantity: String(Math.round(dispQty * 1000) / 1000),
+          // Sin redondeo: se muestra el valor real (limpiando ruido float)
+          // para no perder precisión al re-guardar la receta.
+          quantity: String(trimFloat(dispQty)),
           unit: dispUnit,
         };
       }),
@@ -166,8 +194,8 @@ export default function Materiales() {
       toast("error", "El nombre del material es obligatorio");
       return;
     }
-    if (editingId === null && !(Number(form.stock) >= 0)) {
-      toast("error", "Ingresa un stock inicial válido");
+    if (!(Number(form.stock) >= 0) || form.stock === "") {
+      toast("error", editingId === null ? "Ingresa un stock inicial válido" : "Ingresa un stock válido");
       return;
     }
     if (form.isElaborated) {
@@ -199,7 +227,9 @@ export default function Materiales() {
         }
         converted.push({
           componentId: r.componentId,
-          quantity: Math.round(sq * 100000) / 100000,
+          // Sin redondeo: la cantidad convertida se guarda exacta para que
+          // las estimaciones (ej. 539.1304347826 lb -> hamburguesas) no pierdan.
+          quantity: sq,
         });
       }
     }
@@ -230,6 +260,14 @@ export default function Materiales() {
           recipe: converted,
           extraCosts: extraInputs,
         });
+        // El stock sí se puede corregir después de creado: se registra la
+        // diferencia como movimiento para no perder trazabilidad.
+        const current = (materials ?? []).find((x) => x.id === editingId);
+        const rawDiff = Number(form.stock) - (current?.stock ?? 0);
+        const diff = Math.abs(rawDiff) < 1e-9 ? 0 : trimFloat(rawDiff);
+        if (diff !== 0) {
+          await api.adjustStock(editingId, diff, diff > 0 ? "entrada" : "salida");
+        }
         toast("success", "Material actualizado");
       }
       setEditorOpen(false);
@@ -269,6 +307,34 @@ export default function Materiales() {
     }
   };
 
+  const applyProdAdjust = async () => {
+    if (!prodAdjustTarget) return;
+    const qty = Number(prodAdjustQty);
+    if (!(qty > 0)) {
+      toast("error", "Ingresa una cantidad mayor a cero");
+      return;
+    }
+    setProdAdjusting(true);
+    try {
+      await api.adjustProductStock({
+        productId: prodAdjustTarget.id,
+        change: prodAdjustMode === "entrada" ? qty : -qty,
+        reason: prodAdjustMode,
+      });
+      toast(
+        "success",
+        `${prodAdjustMode === "entrada" ? "Entrada" : "Salida"} de ${fmtQty(qty)} u de "${prodAdjustTarget.name}" registrada`,
+      );
+      setProdAdjustTarget(null);
+      setProdAdjustQty("");
+      await load();
+    } catch (e) {
+      toast("error", errMsg(e));
+    } finally {
+      setProdAdjusting(false);
+    }
+  };
+
   const confirmDelete = async () => {
     if (!deleteTarget) return;
     setDeleting(true);
@@ -284,7 +350,7 @@ export default function Materiales() {
     }
   };
 
-  if (!materials) {
+  if (!materials || !products) {
     return (
       <div className="grid h-full place-items-center">
         <Spinner />
@@ -293,6 +359,9 @@ export default function Materiales() {
   }
 
   const lowCount = materials.filter((m) => m.minStock > 0 && m.stock <= m.minStock).length;
+  const prodLowCount = stockProducts.filter(
+    (p) => p.minStock > 0 && p.stock <= p.minStock,
+  ).length;
 
   return (
     <div className="h-full overflow-y-auto">
@@ -300,24 +369,31 @@ export default function Materiales() {
         <PageHeader
           title="Materiales"
           subtitle={
-            lowCount > 0
-              ? `${materials.length} materiales · ${lowCount} con stock bajo`
-              : `${materials.length} materiales en inventario`
+            tab === "productos"
+              ? prodLowCount > 0
+                ? `${stockProducts.length} productos · ${prodLowCount} con stock bajo`
+                : `${stockProducts.length} productos con stock`
+              : lowCount > 0
+                ? `${materials.length} materiales · ${lowCount} con stock bajo`
+                : `${materials.length} materiales en inventario`
           }
           actions={
             <>
               <Tabs
                 tabs={[
                   { value: "inventario" as Tab, label: "Inventario" },
+                  { value: "productos" as Tab, label: "Productos" },
                   { value: "movimientos" as Tab, label: "Movimientos" },
                 ]}
                 active={tab}
                 onChange={setTab}
               />
-              <Button variant="primary" onClick={openCreate}>
-                <Plus size={15} />
-                Nuevo material
-              </Button>
+              {tab === "inventario" && (
+                <Button variant="primary" onClick={openCreate}>
+                  <Plus size={15} />
+                  Nuevo material
+                </Button>
+              )}
             </>
           }
         />
@@ -449,6 +525,86 @@ export default function Materiales() {
               </Card>
             )}
           </>
+        ) : tab === "productos" ? (
+          <>
+            <div className="relative mb-4 max-w-md">
+              <Search
+                size={15}
+                className="absolute top-1/2 left-3 -translate-y-1/2 text-zinc-500"
+              />
+              <Input
+                placeholder="Buscar producto…"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="pl-9"
+              />
+            </div>
+
+            {filteredProducts.length === 0 ? (
+              <Card>
+                <EmptyState
+                  icon={<Package size={22} />}
+                  title={stockProducts.length === 0 ? "Sin productos por stock" : "Sin resultados"}
+                  description={
+                    stockProducts.length === 0
+                      ? "En Menú activa 'Vender por stock' en un producto (ej. hamburguesa) para ajustar su stock desde aquí."
+                      : "Prueba con otro término de búsqueda."
+                  }
+                />
+              </Card>
+            ) : (
+              <Card className="divide-y divide-white/[0.04]">
+                {filteredProducts.map((p) => {
+                  const isOut = p.stock <= 0;
+                  const isLow = !isOut && p.minStock > 0 && p.stock <= p.minStock;
+                  return (
+                    <div
+                      key={p.id}
+                      className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3 transition-colors hover:bg-white/[0.02] sm:flex-nowrap sm:gap-4 sm:px-5"
+                    >
+                      <div className="min-w-0 flex-1 basis-36">
+                        <p className="truncate text-sm font-medium text-zinc-100">{p.name}</p>
+                        <p className="text-[11px] text-zinc-500">
+                          {p.category}
+                          {p.minStock > 0 ? ` · Mín: ${fmtQty(p.minStock)}` : ""} · Costo:{" "}
+                          {fmtMoney(p.manualCost)}/u
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span
+                          className={cn(
+                            "text-sm font-semibold tabular-nums",
+                            isOut ? "text-red-400" : isLow ? "text-amber-400" : "text-zinc-100",
+                          )}
+                        >
+                          {fmtQty(p.stock)}
+                          <span className="ml-1 text-[11px] font-normal text-zinc-500">u</span>
+                        </span>
+                        {isOut ? (
+                          <Badge tone="danger">Agotado</Badge>
+                        ) : isLow ? (
+                          <Badge tone="warn">Bajo</Badge>
+                        ) : null}
+                      </div>
+                      <div className="ml-auto flex items-center gap-0.5">
+                        <button
+                          title="Entrada / salida de stock"
+                          onClick={() => {
+                            setProdAdjustTarget(p);
+                            setProdAdjustMode("entrada");
+                            setProdAdjustQty("");
+                          }}
+                          className="rounded-lg p-2.5 text-zinc-500 transition-colors hover:bg-white/[0.06] hover:text-accent-400 active:bg-white/[0.06]"
+                        >
+                          <ArrowDownUp size={15} />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </Card>
+            )}
+          </>
         ) : (
           <Card>
             {movements.length === 0 ? (
@@ -524,7 +680,7 @@ export default function Materiales() {
             placeholder="Ej. Masa de hamburguesa"
           />
         </Field>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field label="Unidad de medida">
             <Select value={form.unit} onChange={(e) => setForm({ ...form, unit: e.target.value })}>
               {UNITS.map((u) => (
@@ -534,8 +690,22 @@ export default function Materiales() {
               ))}
             </Select>
           </Field>
-          {editingId === null && (
+          {editingId === null ? (
             <Field label="Stock inicial">
+              <Input
+                type="number"
+                min="0"
+                step="any"
+                value={form.stock}
+                onChange={(e) => setForm({ ...form, stock: e.target.value })}
+                placeholder="0"
+              />
+            </Field>
+          ) : (
+            <Field
+              label="Stock actual"
+              hint="Se puede corregir: la diferencia queda como movimiento"
+            >
               <Input
                 type="number"
                 min="0"
@@ -577,7 +747,8 @@ export default function Materiales() {
         </div>
         {editingId !== null && (
           <p className="text-xs text-zinc-600">
-            El stock se modifica mediante entradas y salidas para mantener trazabilidad.
+            El costo del elaborado nace de sus producciones. El resto del stock también
+            puede moverse con entradas y salidas desde la lista.
           </p>
         )}
 
@@ -695,7 +866,7 @@ export default function Materiales() {
                       type="number"
                       min="0"
                       step="any"
-                      className="h-8 w-24 py-1"
+                      className="h-11 w-full py-1 sm:h-8 sm:w-24"
                       placeholder="0"
                       value={row.quantity}
                       onChange={(e) => {
@@ -711,7 +882,7 @@ export default function Materiales() {
                         next[i] = { ...next[i], unit: e.target.value };
                         setRecipe(next);
                       }}
-                      className="h-8 rounded-lg border border-white/10 bg-surface-800 px-2 text-xs text-zinc-200 outline-none"
+                      className="h-11 rounded-lg border border-white/10 bg-surface-800 px-2 text-base text-zinc-200 outline-none sm:h-8 sm:text-xs"
                     >
                       {units.map((u) => (
                         <option key={u} value={u}>
@@ -792,9 +963,71 @@ export default function Materiales() {
                 type="number"
                 min="0"
                 step="any"
-                autoFocus
+                autoFocus={isDesktop}
                 value={adjustAmount}
                 onChange={(e) => setAdjustAmount(e.target.value)}
+                placeholder="0"
+              />
+            </Field>
+          </>
+        )}
+      </Modal>
+
+      {/* Adjust product stock */}
+      <Modal
+        open={prodAdjustTarget !== null}
+        onClose={() => setProdAdjustTarget(null)}
+        title="Ajustar stock de producto"
+        width="max-w-md"
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setProdAdjustTarget(null)} disabled={prodAdjusting}>
+              Cancelar
+            </Button>
+            <Button variant="primary" onClick={applyProdAdjust} loading={prodAdjusting}>
+              Registrar movimiento
+            </Button>
+          </>
+        }
+      >
+        {prodAdjustTarget && (
+          <>
+            <div className="flex items-center justify-between rounded-xl border border-white/[0.06] bg-surface-800 px-4 py-3">
+              <div>
+                <p className="text-sm font-medium text-zinc-100">{prodAdjustTarget.name}</p>
+                <p className="text-xs text-zinc-500">Stock actual</p>
+              </div>
+              <p className="text-lg font-semibold tabular-nums text-zinc-50">
+                {fmtQty(prodAdjustTarget.stock)}{" "}
+                <span className="text-xs font-normal text-zinc-500">u</span>
+              </p>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              {(["entrada", "salida"] as const).map((mode) => (
+                <button
+                  key={mode}
+                  onClick={() => setProdAdjustMode(mode)}
+                  className={cn(
+                    "rounded-xl border px-4 py-2.5 text-sm font-medium capitalize transition-colors",
+                    prodAdjustMode === mode
+                      ? mode === "entrada"
+                        ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-400"
+                        : "border-amber-500/40 bg-amber-500/10 text-amber-400"
+                      : "border-white/[0.07] bg-white/[0.02] text-zinc-400 hover:text-zinc-200",
+                  )}
+                >
+                  {mode === "entrada" ? "Entrada" : "Salida"}
+                </button>
+              ))}
+            </div>
+            <Field label="Cantidad (u)">
+              <Input
+                type="number"
+                min="0"
+                step="1"
+                autoFocus={isDesktop}
+                value={prodAdjustQty}
+                onChange={(e) => setProdAdjustQty(e.target.value)}
                 placeholder="0"
               />
             </Field>

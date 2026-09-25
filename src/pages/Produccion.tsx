@@ -11,6 +11,7 @@ import type {
 } from "../lib/types";
 import { errMsg, fmtDateTime, fmtMoney, fmtQty } from "../lib/format";
 import { convertQty, costEquivalents } from "../lib/units";
+import { trimFloat } from "../lib/numbers";
 import {
   Badge,
   Button,
@@ -233,7 +234,7 @@ export default function Produccion() {
     if (matQtyNum > matMax + 1e-9) {
       toast(
         "error",
-        `No alcanza el insumo: máximo ${fmtQty(Math.floor(matMax * 1000) / 1000)} ${matSelected.unit} (limita ${matEstimate?.limitingMaterial ?? "—"})`,
+        `No alcanza el insumo: máximo ${fmtQty(matMax)} ${matSelected.unit} (limita ${matEstimate?.limitingMaterial ?? "—"})`,
       );
       return;
     }
@@ -334,7 +335,7 @@ export default function Produccion() {
     const line = p.recipe.find((r) => r.materialId === matSelected.id);
     if (!line) return;
     const g = convertQty(line.quantity, line.unit, "g");
-    if (g !== null && g > 0) setFinalWeightG(String(Math.round(g * 100) / 100));
+    if (g !== null && g > 0) setFinalWeightG(String(trimFloat(g)));
   };
 
   if (!products) {
@@ -491,7 +492,7 @@ export default function Produccion() {
                       )}
 
                       {estimate && estimate.items.length > 0 && (
-                        <div className="mt-4 grid grid-cols-[1fr_1fr_auto] items-end gap-2">
+                        <div className="mt-4 grid grid-cols-1 items-end gap-2 sm:grid-cols-[1fr_1fr_auto]">
                           <Field label="Unidades a producir">
                             <Input
                               type="number"
@@ -505,7 +506,7 @@ export default function Produccion() {
                           <Field label="Nota (opcional)">
                             <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Lote, turno…" />
                           </Field>
-                          <Button variant="primary" onClick={doProduce} loading={producing} disabled={!(qtyNum > 0)}>
+                          <Button variant="primary" onClick={doProduce} loading={producing} disabled={!(qtyNum > 0)} className="min-h-[44px] w-full sm:w-auto">
                             <CookingPot size={15} />
                             Producir
                           </Button>
@@ -649,9 +650,9 @@ export default function Produccion() {
                         <div className="flex items-center justify-between rounded-xl border border-white/[0.06] bg-surface-800 px-4 py-3">
                           <span className="text-xs text-zinc-400">
                             Puedes elaborar hasta{" "}
-                            <strong className="text-lg text-zinc-50">
+                            <strong className="text-lg text-zinc-50" title={String(matMax)}>
                               {" "}
-                              {fmtQty(Math.floor(matMax * 1000) / 1000)} {matEstimate.unit}
+                              {fmtQty(matMax)} {matEstimate.unit}
                             </strong>
                             {matEstimate.limitingMaterial && (
                               <span className="text-zinc-500"> · limita {matEstimate.limitingMaterial}</span>
@@ -666,7 +667,7 @@ export default function Produccion() {
                               {fmtMoney(matEstimate.unitCost)}
                             </span>
                           </span>
-                          <Button size="sm" variant="ghost" onClick={() => setMatQuantity(String(Math.floor(matMax * 1000) / 1000))} disabled={matMax <= 0}>
+                          <Button size="sm" variant="ghost" onClick={() => setMatQuantity(String(trimFloat(matMax)))} disabled={matMax <= 0}>
                             Usar máximo
                           </Button>
                         </div>
@@ -680,9 +681,11 @@ export default function Produccion() {
                                   {" "}· {fmtQty(it.requiredPerUnit)} {it.unit}/{matEstimate.unit} · Stock {fmtQty(it.stock)} {it.unit}
                                 </p>
                               </div>
+                              <span title={String(it.maxOutput)}>
                               <Badge tone={it.maxOutput <= 0 ? "danger" : "zinc"}>
-                                máx {fmtQty(Math.floor(it.maxOutput * 1000) / 1000)}
+                                máx {fmtQty(it.maxOutput)}
                               </Badge>
+                              </span>
                             </div>
                           ))}
                         </div>
@@ -798,7 +801,7 @@ export default function Produccion() {
                                   ) : null;
                                 })()}
                               </span>
-                              <Button size="sm" variant="outline" onClick={() => setMatQuantity(String(Math.round(calcObjetivo * 1000) / 1000))}>
+                              <Button size="sm" variant="outline" onClick={() => setMatQuantity(String(trimFloat(calcObjetivo)))}>
                                 Usar como cantidad
                               </Button>
                             </div>
@@ -808,7 +811,7 @@ export default function Produccion() {
                     )}
 
                     {matEstimate && matEstimate.items.length > 0 && (
-                      <div className="mt-4 grid grid-cols-[1fr_1fr_auto] items-end gap-2">
+                      <div className="mt-4 grid grid-cols-1 items-end gap-2 sm:grid-cols-[1fr_1fr_auto]">
                         <Field label={`Cantidad a elaborar (${matSelected.unit})`}>
                           <Input
                             type="number"
@@ -816,13 +819,13 @@ export default function Produccion() {
                             step="any"
                             value={matQuantity}
                             onChange={(e) => setMatQuantity(e.target.value)}
-                            placeholder={matMax > 0 ? `0 – ${fmtQty(Math.floor(matMax * 1000) / 1000)}` : "0"}
+                            placeholder={matMax > 0 ? `0 – ${fmtQty(matMax)}` : "0"}
                           />
                         </Field>
                         <Field label="Nota (opcional)">
                           <Input value={matNote} onChange={(e) => setMatNote(e.target.value)} placeholder="Lote, turno…" />
                         </Field>
-                        <Button variant="primary" onClick={doProduceMaterial} loading={matProducing} disabled={!(matQtyNum > 0)}>
+                        <Button variant="primary" onClick={doProduceMaterial} loading={matProducing} disabled={!(matQtyNum > 0)} className="min-h-[44px] w-full sm:w-auto">
                           <CookingPot size={15} />
                           Elaborar
                         </Button>

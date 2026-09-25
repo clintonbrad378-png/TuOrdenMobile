@@ -44,7 +44,7 @@ export function generateReportPdf(report: ReportData, from: string, to: string):
   // Generated at
   doc.setTextColor(113, 113, 122);
   doc.setFontSize(7);
-  doc.text(`Generado: ${new Date().toLocaleString("es-AR")}  •  TuOrden v0.2.0`, 14, 33);
+  doc.text(`Generado: ${new Date().toLocaleString("es-AR")}  •  TuOrden v0.3.0`, 14, 33);
 
   let y = 38;
 

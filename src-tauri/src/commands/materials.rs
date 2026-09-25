@@ -554,7 +554,7 @@ pub async fn receive_material(
 
     let new_stock = current_stock + input.quantity;
     let new_cost = if new_stock > 0.0 {
-        const PRECISION: f64 = 1000.0;
+        const PRECISION: f64 = 1_000_000.0;
         let total_value = current_stock * current_cost + input.quantity * input.cost_per_unit;
         (total_value * PRECISION / new_stock).round() / PRECISION
     } else {
@@ -680,7 +680,7 @@ pub async fn internal_consumption(
             )
             .map_err(|e| e.to_string())?;
         let need = input.quantity as f64;
-        if stock < need {
+        if stock + 1e-9 < need {
             return Err(format!(
                 "Stock insuficiente del producto (disponible: {}, requerido: {})",
                 fmt_qty(stock),
@@ -730,7 +730,7 @@ pub async fn internal_consumption(
             .map_err(|e| e.to_string())?
             .ok_or_else(|| "Material no encontrado".to_string())?;
 
-        if stock < total_qty {
+        if stock + 1e-9 < total_qty {
             let name: String = conn
                 .query_row(
                     "SELECT name FROM materials WHERE id = ?1",

@@ -75,7 +75,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const $ = (id) => document.getElementById(id);
 const money = (n) => "$" + (Number(n)||0).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
-const qty = (n) => { const v = Number(n)||0; return Number.isInteger(v) ? String(v) : v.toLocaleString("es-ES",{maximumFractionDigits:3}); };
+const qty = (n) => { const v = Number(n)||0; const r = Math.round(v*1e6)/1e6; return Number.isInteger(r) ? String(r) : r.toLocaleString("es-ES",{maximumFractionDigits:6}); };
 const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; };
 
 let sb = null, channel = null, timer = null;

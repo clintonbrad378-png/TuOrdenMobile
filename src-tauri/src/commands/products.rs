@@ -452,8 +452,11 @@ fn estimate_for_product(
     let mut max_units = i64::MAX;
     let mut limiting: Option<String> = None;
     for (mid, mname, unit, stock, per_unit, _cost) in rows {
+        // Épsilon antes del floor: evita que 3099.9999999 por ruido float
+        // (ej. 539.1304347826 lb x 460 g/lb = 247999.9999999 g) se trunque a
+        // una unidad menos de producto terminado.
         let mu = if per_unit > 0.0 {
-            (stock / per_unit).floor() as i64
+            ((stock / per_unit) + 1e-9).floor() as i64
         } else {
             0
         };
@@ -556,7 +559,9 @@ pub async fn produce_stock(
             .map_err(|e| e.to_string())?
             .ok_or_else(|| "Material de la receta no encontrado".to_string())?;
         let need = *per_unit * quantity;
-        if mstock < need {
+        // Tolerancia float: el stock puede estar una milmillonésima por debajo
+        // del necesario por redondeo de conversión (g <-> lb).
+        if mstock + 1e-9 < need {
             return Err(format!(
                 "Stock insuficiente de {}: necesitas {}, disponible {}",
                 mname,

@@ -1,6 +1,6 @@
 /** Conversión de unidades para recetas y materiales.
  * Familias: masa (g base), volumen (ml base), unidades (u, sin conversión).
- * 1 lb = 453.59237 g · 1 oz = 28.349523125 g · 1 kg = 1000 g
+ * Libra cubana: 1 lb = 460 g · 1 oz = 28.75 g (1 lb = 16 oz) · 1 kg = 1000 g
  * 1 L = 1000 ml
  */
 
@@ -10,8 +10,8 @@ export const VOLUME_UNITS = ["ml", "L"] as const;
 const TO_GRAMS: Record<string, number> = {
   g: 1,
   kg: 1000,
-  lb: 453.59237,
-  oz: 28.349523125,
+  lb: 460,
+  oz: 28.75,
 };
 
 const TO_ML: Record<string, number> = {
@@ -61,7 +61,7 @@ export function toStockUnit(qty: number, from: string, stockUnit: string): numbe
 }
 
 /** Texto corto de equivalencias: ej. "907.2 g · 0.907 kg · 32 oz" */
-export function stockEquivalents(stock: number, unit: string, decimals = 3): string {
+export function stockEquivalents(stock: number, unit: string, decimals = 6): string {
   const units = compatibleUnits(unit);
   if (units.length <= 1) return "";
   const parts: string[] = [];
@@ -89,7 +89,7 @@ export function costEquivalents(costPerUnit: number, unit: string): { unit: stri
   return out;
 }
 
-function trimNum(n: number, decimals = 3): string {
+function trimNum(n: number, decimals = 6): string {
   if (!Number.isFinite(n)) return "0";
   const r = Math.round(n * 10 ** decimals) / 10 ** decimals;
   if (Number.isInteger(r)) return String(r);

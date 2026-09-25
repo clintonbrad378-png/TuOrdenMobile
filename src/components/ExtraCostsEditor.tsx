@@ -82,7 +82,7 @@ export default function ExtraCostsEditor({
         Se suman al costo de materiales. La ganancia queda limpia: no los descuentes luego en Gastos.
       </p>
       {rows.map((row, i) => (
-        <div key={i} className="flex items-center gap-2">
+        <div key={i} className="flex flex-wrap items-center gap-2">
           <Input
             value={row.name}
             onChange={(e) => {
@@ -91,7 +91,7 @@ export default function ExtraCostsEditor({
               onChange(next);
             }}
             placeholder="Ej. Mano de obra"
-            className="h-8 flex-1 py-1 text-xs"
+            className="h-11 basis-full py-1 text-base sm:h-8 sm:basis-auto sm:flex-1 sm:text-xs"
           />
           <select
             value={row.kind}
@@ -100,7 +100,7 @@ export default function ExtraCostsEditor({
               next[i] = { ...next[i], kind: e.target.value };
               onChange(next);
             }}
-            className="h-8 shrink-0 rounded-lg border border-white/10 bg-surface-800 px-1.5 text-xs text-zinc-200 outline-none"
+            className="h-11 shrink-0 rounded-lg border border-white/10 bg-surface-800 px-1.5 text-base text-zinc-200 outline-none sm:h-8 sm:text-xs"
           >
             {EXTRA_KINDS.map((k) => (
               <option key={k.value} value={k.value}>
@@ -119,7 +119,7 @@ export default function ExtraCostsEditor({
               onChange(next);
             }}
             placeholder="0.00"
-            className="h-8 w-24 shrink-0 py-1 text-xs"
+            className="h-11 w-24 shrink-0 py-1 text-base sm:h-8 sm:text-xs"
           />
           <button
             type="button"

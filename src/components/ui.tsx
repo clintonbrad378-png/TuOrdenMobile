@@ -3,6 +3,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useRef,
   useState,
   type ButtonHTMLAttributes,
   type InputHTMLAttributes,
@@ -65,8 +66,10 @@ export function Button({
 
 /* ---------- Inputs ---------- */
 
+// En móvil: texto 16px (iOS hace zoom automático si es menor y se pierde el
+// campo de vista) y alto mínimo 44px para tacto. En desktop se compacta.
 const inputBase =
-  "w-full rounded-lg border border-white/10 bg-surface-800 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 outline-none transition-colors focus:border-accent-500/50 focus:ring-2 focus:ring-accent-500/15 disabled:opacity-50";
+  "w-full rounded-lg border border-white/10 bg-surface-800 px-3 py-2.5 text-base text-zinc-100 placeholder:text-zinc-600 outline-none transition-colors focus:border-accent-500/50 focus:ring-2 focus:ring-accent-500/15 disabled:opacity-50 min-h-[44px] sm:min-h-0 sm:py-2 sm:text-sm";
 
 export function Input({ className, ...props }: InputHTMLAttributes<HTMLInputElement>) {
   return <input className={cn(inputBase, className)} {...props} />;
@@ -157,6 +160,23 @@ export function Badge({
 
 /* ---------- Modal ---------- */
 
+/** true si hay puntero fino (mouse): para autoFocus solo en desktop. */
+export function useFinePointer() {
+  const [fine, setFine] = useState(
+    () =>
+      typeof window !== "undefined" &&
+      typeof window.matchMedia === "function" &&
+      window.matchMedia("(pointer: fine)").matches,
+  );
+  useEffect(() => {
+    const mq = window.matchMedia("(pointer: fine)");
+    const onChange = (e: MediaQueryListEvent) => setFine(e.matches);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
+  return fine;
+}
+
 export function Modal({
   open,
   onClose,
@@ -176,8 +196,45 @@ export function Modal({
     if (!open) return;
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    // Bloquear el scroll de la página detrás del modal.
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prevOverflow;
+    };
   }, [open, onClose]);
+
+  // En móvil el teclado tapa el campo activo: al enfocar, desplazarlo al
+  // centro del área visible del modal; y al redimensionarse el viewport
+  // visual (apertura del teclado) re-encuadrar el elemento enfocado.
+  const scrollNode = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!open || !scrollNode.current) return;
+    const node = scrollNode.current;
+    const scrollToFocused = () => {
+      const el = node.querySelector(":focus") as HTMLElement | null;
+      if (el && typeof el.scrollIntoView === "function") {
+        // Esperar a que el teclado termine de abrir y el layout se asiente.
+        setTimeout(
+          () => el.scrollIntoView({ block: "center", behavior: "smooth" }),
+          250,
+        );
+      }
+    };
+    const onFocusIn = () => scrollToFocused();
+    const onViewportResize = () => {
+      if (node.querySelector(":focus")) scrollToFocused();
+    };
+    node.addEventListener("focusin", onFocusIn);
+    const vv = window.visualViewport;
+    vv?.addEventListener("resize", onViewportResize);
+    return () => {
+      node.removeEventListener("focusin", onFocusIn);
+      vv?.removeEventListener("resize", onViewportResize);
+    };
+  }, [open ]);
 
   if (!open) return null;
 
@@ -202,11 +259,15 @@ export function Modal({
             <X size={16} />
           </button>
         </div>
-        <div className="flex-1 space-y-4 overflow-y-auto px-5 pt-[calc(1rem+env(safe-area-inset-top))] pb-[calc(1rem+env(safe-area-inset-bottom))] sm:pt-4 sm:pb-4">
+        <div
+          ref={scrollNode}
+          data-modal-scroll
+          className="flex-1 space-y-4 overflow-y-auto px-4 pt-[calc(1rem+env(safe-area-inset-top))] pb-[calc(1rem+env(safe-area-inset-bottom))] sm:px-5 sm:pt-4 sm:pb-4"
+        >
           {children}
         </div>
         {footer && (
-          <div className="flex items-center justify-end gap-2 border-t border-white/[0.06] px-5 py-4 pb-[calc(1rem+env(safe-area-inset-bottom))] sm:pb-4">
+          <div className="flex items-center justify-end gap-2 border-t border-white/[0.06] px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:px-5 sm:py-4 sm:pb-4 [&>button]:min-h-[44px] sm:[&>button]:min-h-0">
             {footer}
           </div>
         )}

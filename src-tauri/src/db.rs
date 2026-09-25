@@ -303,11 +303,13 @@ pub fn fmt_qty(n: f64) -> String {
     if !n.is_finite() {
         return "0".to_string();
     }
-    let rounded = (n * 1000.0).round() / 1000.0;
+    // 6 decimales: suficiente para lb/oz/kg (0.000001 lb ≈ 0.0004 g) sin el
+    // truncamiento a 3 que ocultaba stock real (ej. 539.130434 -> 539.13).
+    let rounded = (n * 1_000_000.0).round() / 1_000_000.0;
     if rounded.fract() == 0.0 {
         format!("{:.0}", rounded)
     } else {
-        let s = format!("{:.3}", rounded);
+        let s = format!("{:.6}", rounded);
         s.trim_end_matches('0').trim_end_matches('.').to_string()
     }
 }

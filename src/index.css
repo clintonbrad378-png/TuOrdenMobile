@@ -47,6 +47,15 @@
     -webkit-user-select: text;
   }
 
+  /* El teclado móvil no debe tapar el campo activo: los contenedores con
+     scroll dejan margen y el Modal desplaza el foco a la vista (ver ui.tsx). */
+  [data-modal-scroll] {
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+    scroll-padding-top: 1rem;
+    scroll-padding-bottom: 6rem;
+  }
+
   ::selection {
     background-color: rgb(16 185 129 / 0.3);
   }

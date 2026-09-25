@@ -7,12 +7,14 @@ export const fmtMoney = (n: number) =>
     maximumFractionDigits: 2,
   });
 
-export const fmtQty = (n: number) => {
+export const QTY_DECIMALS = 6;
+
+export const fmtQty = (n: number, decimals = QTY_DECIMALS) => {
   if (!Number.isFinite(n)) return "0";
-  const rounded = Math.round(n * 1000) / 1000;
+  const rounded = Math.round(n * 10 ** decimals) / 10 ** decimals;
   return Number.isInteger(rounded) ? String(rounded) : rounded.toLocaleString('es-ES', {
     minimumFractionDigits: 0,
-    maximumFractionDigits: 3,
+    maximumFractionDigits: decimals,
   });
 };
 

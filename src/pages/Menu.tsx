@@ -11,6 +11,7 @@ import { api } from "../lib/api";
 import type { Material, Product } from "../lib/types";
 import { errMsg, fmtMoney, fmtQty } from "../lib/format";
 import { compatibleUnits, convertQty, unitFamily } from "../lib/units";
+import { trimFloat } from "../lib/numbers";
 import {
   Badge,
   Button,
@@ -24,6 +25,7 @@ import {
   Spinner,
   Switch,
   cn,
+  useFinePointer,
   useToast,
 } from "../components/ui";
 import ExtraCostsEditor, { extraTotal, toExtraInputs, type ExtraRow } from "../components/ExtraCostsEditor";
@@ -59,6 +61,7 @@ function MaterialPicker({
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const selected = materials.find((m) => m.id === value) ?? null;
+  const isDesktop = useFinePointer();
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -104,7 +107,7 @@ function MaterialPicker({
           <div className="absolute top-full left-0 z-30 mt-1.5 w-full overflow-hidden rounded-xl border border-white/10 bg-surface-800 shadow-2xl">
             <div className="border-b border-white/[0.06] p-2">
               <input
-                autoFocus
+                autoFocus={isDesktop}
                 placeholder="Buscar material…"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
@@ -249,7 +252,9 @@ export default function Menu() {
             : r.quantity;
         return {
           materialId: r.materialId,
-          quantity: String(Math.round(dispQty * 1000) / 1000),
+          // Sin redondeo: conserva el valor real (ej. 80 g exactos aunque el
+          // stock esté en lb) para no degradar la receta en cada edición.
+          quantity: String(trimFloat(dispQty)),
           unit: dispUnit,
         };
       }),
@@ -325,7 +330,7 @@ export default function Menu() {
         toast("error", `Unidad incompatible para "${mat.name}"`);
         return;
       }
-      converted.push({ materialId: r.materialId, quantity: Math.round(stockQty * 100000) / 100000 });
+      converted.push({ materialId: r.materialId, quantity: stockQty });
     }
     setSaving(true);
     const payload = {
@@ -516,7 +521,7 @@ export default function Menu() {
           </>
         }
       >
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field label="Nombre">
             <Input
               value={form.name}
@@ -568,7 +573,7 @@ export default function Menu() {
         </label>
 
         {form.tracksStock && (
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
             {editingId === null && (
               <Field label="Stock inicial (u)" hint="Unidades ya elaboradas">
                 <Input
@@ -681,7 +686,7 @@ export default function Menu() {
                     type="number"
                     min="0"
                     step="any"
-                    className="h-8 w-24 py-1"
+                    className="h-11 w-full py-1 sm:h-8 sm:w-24"
                     placeholder="0"
                     value={row.quantity}
                     onChange={(e) => {
@@ -697,7 +702,7 @@ export default function Menu() {
                       next[i] = { ...next[i], unit: e.target.value };
                       setRecipe(next);
                     }}
-                    className="h-8 rounded-lg border border-white/10 bg-surface-800 px-2 text-xs text-zinc-200 outline-none"
+                    className="h-11 rounded-lg border border-white/10 bg-surface-800 px-2 text-base text-zinc-200 outline-none sm:h-8 sm:text-xs"
                   >
                     {units.map((u) => (
                       <option key={u} value={u}>
