@@ -236,6 +236,36 @@ CREATE TABLE IF NOT EXISTS product_extra_costs (
 CREATE INDEX IF NOT EXISTS idx_mat_extra_material ON material_extra_costs(material_id);
 CREATE INDEX IF NOT EXISTS idx_prod_extra_product ON product_extra_costs(product_id);
 "#;
+
+const MIGRATION_V10: &str = r#"
+-- Sync gerente <-> dependiente (Opcion C: catalogo down + ventas up).
+-- uuid = identidad estable cross-device (id local sigue AUTOINCREMENT).
+-- sync_meta = device_id, business_id, role, token, catalog_version, last_push...
+-- synced_sales = ventas ya subidas al relay (cola pendientes = las que faltan).
+CREATE TABLE IF NOT EXISTS sync_meta (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS synced_sales (
+  local_id INTEGER NOT NULL,
+  kind TEXT NOT NULL DEFAULT 'sale',
+  batch_id TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+  PRIMARY KEY (local_id, kind)
+);
+
+-- Mapa origen->local para resolver pagos a credito que llegan despues.
+-- origin_device + origin_kind + origin_local_id = clave estable del dependiente.
+CREATE TABLE IF NOT EXISTS sale_origin_map (
+  origin_device TEXT NOT NULL,
+  origin_kind TEXT NOT NULL,
+  origin_local_id INTEGER NOT NULL,
+  local_id INTEGER NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+  PRIMARY KEY (origin_device, origin_kind, origin_local_id)
+);
+"#;
 pub fn init_db(path: &std::path::Path) -> Result<Connection, Box<dyn std::error::Error>> {
     let conn = Connection::open(path)?;
     conn.pragma_update(None, "foreign_keys", "ON")?;
@@ -295,6 +325,32 @@ fn migrate(conn: &Connection) -> Result<(), Box<dyn std::error::Error>> {
             }
         }
         conn.pragma_update(None, "user_version", 9)?;
+    }
+    if version < 10 {
+        conn.execute_batch(MIGRATION_V10)?;
+        // Columnas uuid tolerando reintentos parciales.
+        for sql in [
+            "ALTER TABLE materials ADD COLUMN uuid TEXT",
+            "ALTER TABLE products ADD COLUMN uuid TEXT",
+        ] {
+            match conn.execute_batch(sql) {
+                Ok(_) => {},
+                Err(e) => {
+                    let msg = e.to_string();
+                    if !(msg.contains("duplicate column") || msg.contains("already exists")) {
+                        return Err(Box::new(e));
+                    }
+                }
+            }
+        }
+        // Backfill uuid donde falte (hex random 16 bytes).
+        conn.execute_batch(
+            "UPDATE materials SET uuid = lower(hex(randomblob(16))) WHERE uuid IS NULL OR uuid = '';\n\
+             UPDATE products SET uuid = lower(hex(randomblob(16))) WHERE uuid IS NULL OR uuid = '';\n\
+             CREATE UNIQUE INDEX IF NOT EXISTS idx_mat_uuid ON materials(uuid);\n\
+             CREATE UNIQUE INDEX IF NOT EXISTS idx_prod_uuid ON products(uuid);",
+        )?;
+        conn.pragma_update(None, "user_version", 10)?;
     }
     Ok(())
 }

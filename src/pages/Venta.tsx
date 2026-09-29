@@ -19,6 +19,53 @@ import {
   useToast,
 } from "../components/ui";
 import ProductPicker from "../components/ProductPicker";
+import { Link } from "react-router-dom";
+
+function PendingBadge() {
+  const [pending, setPending] = useState(0);
+  const [online, setOnline] = useState(typeof navigator === "undefined" ? true : navigator.onLine);
+  useEffect(() => {
+    let alive = true;
+    const load = async () => {
+      try {
+        const s = await api.syncGetDevice();
+        if (alive) setPending(s.pendingOut);
+      } catch {}
+    };
+    load();
+    const onUpd = () => load();
+    const onOn = () => { setOnline(true); load(); };
+    const onOff = () => setOnline(false);
+    window.addEventListener("tuorden:sales-imported", onUpd);
+    window.addEventListener("tuorden:catalog-updated", onUpd);
+    window.addEventListener("tuorden:pending-changed", onUpd);
+    window.addEventListener("online", onOn);
+    window.addEventListener("offline", onOff);
+    const t = window.setInterval(load, 30_000);
+    return () => {
+      alive = false;
+      window.clearInterval(t);
+      window.removeEventListener("tuorden:sales-imported", onUpd);
+      window.removeEventListener("tuorden:catalog-updated", onUpd);
+      window.removeEventListener("tuorden:pending-changed", onUpd);
+      window.removeEventListener("online", onOn);
+      window.removeEventListener("offline", onOff);
+    };
+  }, []);
+  if (!online) {
+    return (
+      <Link to="/sincronizacion" className="shrink-0 rounded-full border border-zinc-500/30 bg-zinc-500/10 px-2.5 py-1 text-[11px] font-medium text-zinc-300">
+        Offline{pending > 0 ? ` · ${pending} sin enviar` : ""}
+      </Link>
+    );
+  }
+  if (pending <= 0) return null;
+  return (
+    <Link to="/sincronizacion" className="shrink-0 rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-[11px] font-medium text-amber-200">
+      {pending} sin enviar
+    </Link>
+  );
+}
 
 type VentaTab = "venta" | "credito";
 
@@ -142,6 +189,7 @@ export default function Venta() {
       setCart({});
       setNote("");
       setCartOpen(false);
+      window.dispatchEvent(new Event("tuorden:pending-changed"));
       await reloadProducts();
     } catch (e) {
       toast("error", errMsg(e));
@@ -190,6 +238,7 @@ export default function Venta() {
       toast("success", "Venta a crédito registrada");
       setCreditEditorOpen(false);
       setCreditForm(emptyCreditForm);
+      window.dispatchEvent(new Event("tuorden:pending-changed"));
       await loadCreditSales();
       await reloadProducts();
     } catch (e) {
@@ -274,6 +323,7 @@ export default function Venta() {
           <section className="flex min-w-0 flex-1 flex-col overflow-hidden">
             <header className="flex items-center gap-3 px-4 pt-4 pb-3 sm:gap-4 sm:px-6 sm:pt-6 flex-shrink-0">
               <h1 className="text-xl font-semibold tracking-tight text-zinc-50">Venta</h1>
+              <PendingBadge />
               <div className="relative max-w-md flex-1">
                 <Search size={15} className="absolute top-1/2 left-3 -translate-y-1/2 text-zinc-500" />
                 <Input

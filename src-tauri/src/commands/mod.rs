@@ -6,3 +6,4 @@ pub mod products;
 pub mod reports;
 pub mod sales;
 pub mod stats;
+pub mod sync;

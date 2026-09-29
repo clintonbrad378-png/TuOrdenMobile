@@ -436,3 +436,88 @@ export interface ProductionEstimate {
   limitingMaterial: string | null;
   items: ProductionEstimateItem[];
 }
+
+// ---- Sync gerente <-> dependiente (Opcion C) ----
+export interface SyncExtra {
+  name: string;
+  kind: string;
+  amount: number;
+}
+
+export interface SyncMaterial {
+  uuid: string;
+  name: string;
+  unit: string;
+  stock: number;
+  minStock: number;
+  costPerUnit: number;
+  isElaborated: boolean;
+  recipeYield: number;
+  recipe: { componentUuid: string; quantity: number }[];
+  extras: SyncExtra[];
+}
+
+export interface SyncProduct {
+  uuid: string;
+  name: string;
+  category: string;
+  price: number;
+  active: boolean;
+  tracksStock: boolean;
+  stock: number;
+  minStock: number;
+  manualCost: number;
+  recipe: { materialUuid: string; quantity: number }[];
+  extras: SyncExtra[];
+}
+
+export interface CatalogPayload {
+  version: number;
+  materials: SyncMaterial[];
+  products: SyncProduct[];
+}
+
+export interface PendingSaleItem {
+  productUuid: string | null;
+  productName: string;
+  unitPrice: number;
+  unitCost: number;
+  quantity: number;
+  subtotal: number;
+}
+
+export interface PendingPayment {
+  amount: number;
+  paymentMethod: string;
+  note: string | null;
+  createdAt?: string | null;
+}
+
+export interface PendingSale {
+  localId: number;
+  kind: string;
+  total: number;
+  paymentMethod?: string | null;
+  clientName?: string | null;
+  clientPhone?: string | null;
+  note: string | null;
+  createdAt: string;
+  items: PendingSaleItem[];
+  payments: PendingPayment[];
+  originCreditLocalId?: number | null;
+}
+
+export interface ImportBatchResult {
+  localId: number;
+  hadConflict: boolean;
+  message: string;
+}
+
+export interface SyncStatus {
+  deviceId: string;
+  businessId: string | null;
+  role: string;
+  catalogVersion: number;
+  pendingOut: number;
+  pendingDetail: PendingSale[];
+}

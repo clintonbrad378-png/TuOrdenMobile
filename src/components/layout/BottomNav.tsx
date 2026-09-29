@@ -6,6 +6,7 @@ import {
   Factory,
   History,
   LayoutDashboard,
+  RefreshCw,
   Settings,
   ShoppingCart,
   Trash2,
@@ -26,11 +27,13 @@ const NAV = [
   { to: "/mermas", label: "Mermas", icon: Trash2, end: false },
   { to: "/gastos", label: "Gastos", icon: CreditCard, end: false },
   { to: "/reportes", label: "Reportes", icon: BarChart3, end: false },
+  { to: "/sincronizacion", label: "Sync", icon: RefreshCw, end: false },
   { to: "/configuracion", label: "Ajustes", icon: Settings, end: false },
 ];
 
 const VENTA_ONLY = [
   { to: "/venta", label: "Venta", icon: ShoppingCart, end: false },
+  { to: "/sincronizacion", label: "Sync", icon: RefreshCw, end: false },
 ];
 
 export default function BottomNav() {

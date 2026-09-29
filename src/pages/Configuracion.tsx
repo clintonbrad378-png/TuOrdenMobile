@@ -1,10 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { QRCodeSVG } from "qrcode.react";
+import { Link } from "react-router-dom";
 import {
-  Check,
-  ChevronDown,
-  Cloud,
   Copy,
   Database,
   Eye,
@@ -16,6 +14,7 @@ import {
   Package,
   QrCode,
   RefreshCw,
+  RefreshCcw,
   RotateCcw,
   Shield,
   ShoppingBag,
@@ -26,20 +25,6 @@ import type { DbInfo, LicenseCheck } from "../lib/types";
 import { errMsg, humanSize, isoToday } from "../lib/format";
 import { useAuth } from "../lib/auth";
 import {
-  getLastPush,
-  getPanelClient,
-  getPanelConfig,
-  getPanelEmail,
-  getPanelIncludeCosts,
-  getPanelIntervalMin,
-  savePanelConfig,
-  setPanelEmail,
-  setPanelIncludeCosts,
-  setPanelIntervalMin,
-} from "../lib/supabase";
-import { pushPanelSnapshot, resetPanelDedupe } from "../lib/panelSync";
-import { notifyPanelConfigChanged } from "../lib/usePanelAutoSync";
-import {
   Badge,
   Button,
   Card,
@@ -47,18 +32,8 @@ import {
   Input,
   PageHeader,
   Spinner,
-  cn,
   useToast,
 } from "../components/ui";
-
-const INTERVAL_OPTIONS = [
-  { value: 0, label: "Solo manual" },
-  { value: 1, label: "Cada 1 min" },
-  { value: 5, label: "Cada 5 min" },
-  { value: 15, label: "Cada 15 min" },
-  { value: 30, label: "Cada 30 min" },
-  { value: 60, label: "Cada 1 hora" },
-];
 
 export default function Configuracion() {
   const [info, setInfo] = useState<DbInfo | null>(null);
@@ -73,19 +48,6 @@ export default function Configuracion() {
   const [confirmPin, setConfirmPin] = useState("");
   const [showPins, setShowPins] = useState(false);
   const [savingPin, setSavingPin] = useState(false);
-
-  // Panel online (Supabase)
-  const [sbUrl, setSbUrl] = useState("");
-  const [sbAnon, setSbAnon] = useState("");
-  const [sbEmail, setSbEmail] = useState("");
-  const [sbPass, setSbPass] = useState("");
-  const [sbSession, setSbSession] = useState<string | null>(null);
-  const [sbInterval, setSbInterval] = useState(5);
-  const [sbCosts, setSbCosts] = useState(true);
-  const [sbBusy, setSbBusy] = useState(false);
-  const [sbLastPush, setSbLastPush] = useState<string | null>(null);
-  const [showSbKeys, setShowSbKeys] = useState(false);
-  const [intervalOpen, setIntervalOpen] = useState(false);
 
   // Licencia y renovación (solo gerente)
   const [licCheck, setLicCheck] = useState<LicenseCheck | null>(null);
@@ -115,113 +77,6 @@ export default function Configuracion() {
   }, [load]);
 
   // Cargar config del panel + sesión Supabase
-  useEffect(() => {
-    const cfg = getPanelConfig();
-    setSbUrl(cfg.url);
-    setSbAnon(cfg.anonKey);
-    setSbEmail(getPanelEmail());
-    setSbInterval(getPanelIntervalMin());
-    setSbCosts(getPanelIncludeCosts());
-    setSbLastPush(getLastPush());
-    const sb = getPanelClient();
-    sb?.auth.getSession().then(({ data }) => {
-      setSbSession(data.session?.user?.email ?? null);
-    }).catch(() => {});
-    const { data: sub } = sb?.auth.onAuthStateChange((_e, s) => {
-      setSbSession(s?.user?.email ?? null);
-    }) ?? { data: { subscription: { unsubscribe: () => {} } } };
-    return () => sub.subscription.unsubscribe();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const handleSavePanelConfig = () => {
-    savePanelConfig({ url: sbUrl, anonKey: sbAnon });
-    setPanelEmail(sbEmail);
-    setPanelIntervalMin(sbInterval);
-    setPanelIncludeCosts(sbCosts);
-    resetPanelDedupe();
-    notifyPanelConfigChanged();
-    toast("success", "Configuración del panel guardada");
-  };
-
-  const handlePanelLogin = async () => {
-    if (!sbEmail.trim() || !sbPass) {
-      toast("error", "Ingresa email y contraseña del gerente");
-      return;
-    }
-    setSbBusy(true);
-    try {
-      savePanelConfig({ url: sbUrl, anonKey: sbAnon });
-      setPanelEmail(sbEmail);
-      const sb = getPanelClient();
-      if (!sb) throw new Error("Configura URL y anon key primero");
-      const { error } = await sb.auth.signInWithPassword({ email: sbEmail.trim(), password: sbPass });
-      if (error) throw new Error(error.message);
-      setSbPass("");
-      notifyPanelConfigChanged();
-      toast("success", "Sesión de gerente iniciada para el panel");
-    } catch (e) {
-      toast("error", errMsg(e));
-    } finally {
-      setSbBusy(false);
-    }
-  };
-
-  const handlePanelLogout = async () => {
-    try {
-      await getPanelClient()?.auth.signOut();
-      toast("info", "Sesión del panel cerrada");
-    } catch (e) {
-      toast("error", errMsg(e));
-    }
-  };
-
-  const handlePanelSignup = async () => {
-    if (!sbEmail.trim() || !sbPass) {
-      toast("error", "Ingresa email y contraseña para crear la cuenta de gerente");
-      return;
-    }
-    if (sbPass.length < 6) {
-      toast("error", "La contraseña debe tener al menos 6 caracteres");
-      return;
-    }
-    setSbBusy(true);
-    try {
-      savePanelConfig({ url: sbUrl, anonKey: sbAnon });
-      setPanelEmail(sbEmail);
-      const sb = getPanelClient();
-      if (!sb) throw new Error("Configura URL y anon key primero");
-      const { data, error } = await sb.auth.signUp({ email: sbEmail.trim(), password: sbPass });
-      if (error) throw new Error(error.message);
-      if (!data.session) {
-        throw new Error(
-          "Cuenta creada. Revisa tu email para confirmarla, o desactiva Auth → Sign In/Up → Confirm email en Supabase y vuelve a iniciar sesión",
-        );
-      }
-      setSbPass("");
-      notifyPanelConfigChanged();
-      toast("success", "Cuenta de gerente creada y sesión iniciada");
-    } catch (e) {
-      toast("error", errMsg(e));
-    } finally {
-      setSbBusy(false);
-    }
-  };
-
-  const handlePublishNow = async () => {
-    setSbBusy(true);
-    try {
-      savePanelConfig({ url: sbUrl, anonKey: sbAnon });
-      const r = await pushPanelSnapshot(true);
-      setSbLastPush(r.updatedAt);
-      toast("success", r.skipped ? "Sin cambios, nada que subir" : "Resumen del día publicado");
-    } catch (e) {
-      toast("error", errMsg(e));
-    } finally {
-      setSbBusy(false);
-    }
-  };
-
   const createBackup = async () => {
     setBackingUp(true);
     try {
@@ -650,162 +505,25 @@ export default function Configuracion() {
           </Card>
         )}
 
-        {/* Panel online (Supabase) */}
+        {/* Sincronizacion gerente <-> dependiente */}
         {!isDependiente && (
           <Card className="mt-6 p-5">
-            <div className="flex items-center justify-between gap-2">
-              <h2 className="flex items-center gap-2 text-sm font-medium text-zinc-200">
-                <Cloud size={16} className="text-accent-400" />
-                Panel online
-              </h2>
-              <Badge tone={sbSession ? "accent" : "zinc"}>
-                {sbSession ? `Conectado: ${sbSession}` : "Sin sesión"}
-              </Badge>
-            </div>
+            <h2 className="flex items-center gap-2 text-sm font-medium text-zinc-200">
+              <RefreshCcw size={16} className="text-accent-400" />
+              Sincronización con dependientes
+            </h2>
             <p className="mt-1.5 text-xs leading-relaxed text-zinc-500">
-              Mira las ventas del día, el stock y los productos vendidos desde cualquier navegador.
-              Pega tu URL y clave, inicia sesión y la app lo mantiene actualizado solo.
+              Comparte tu menú y stock con el teléfono del dependiente y recibe sus ventas
+              automáticamente. Todo funciona offline y se envía al reconectar.
             </p>
-
-            <div className="mt-4 grid gap-3">
-              <div className="grid gap-1.5">
-                <label className="text-xs font-medium text-zinc-400">Supabase URL</label>
-                <Input
-                  placeholder="https://xyz.supabase.co"
-                  value={sbUrl}
-                  onChange={(e) => setSbUrl(e.target.value)}
-                />
-              </div>
-              <div className="grid gap-1.5">
-                <label className="text-xs font-medium text-zinc-400">Anon key</label>
-                <div className="relative">
-                  <Input
-                    type={showSbKeys ? "text" : "password"}
-                    placeholder="eyJhbGciOi..."
-                    value={sbAnon}
-                    onChange={(e) => setSbAnon(e.target.value)}
-                    className="pr-9"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowSbKeys((v) => !v)}
-                    className="absolute top-1/2 right-2 -translate-y-1/2 rounded-md p-1 text-zinc-500 hover:bg-white/5"
-                  >
-                    {showSbKeys ? <EyeOff size={14} /> : <Eye size={14} />}
-                  </button>
-                </div>
-              </div>
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <div className="grid gap-1.5">
-                  <label className="text-xs font-medium text-zinc-400">Email gerente</label>
-                  <Input
-                    type="email"
-                    placeholder="gerente@negocio.com"
-                    value={sbEmail}
-                    onChange={(e) => setSbEmail(e.target.value)}
-                  />
-                </div>
-                <div className="grid gap-1.5">
-                  <label className="text-xs font-medium text-zinc-400">Contraseña</label>
-                  <Input
-                    type="password"
-                    placeholder="••••••••"
-                    value={sbPass}
-                    onChange={(e) => setSbPass(e.target.value)}
-                  />
-                </div>
-              </div>
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <div className="grid gap-1.5">
-                  <label className="text-xs font-medium text-zinc-400">Actualizar cada</label>
-                  <div className="relative">
-                    <button
-                      type="button"
-                      onClick={() => setIntervalOpen((v) => !v)}
-                      className="flex w-full items-center justify-between rounded-lg border border-white/10 bg-surface-800 px-3 py-2 text-left text-sm text-zinc-100 outline-none transition-colors focus:border-accent-500/50"
-                    >
-                      <span>{INTERVAL_OPTIONS.find((o) => o.value === sbInterval)?.label}</span>
-                      <ChevronDown
-                        size={15}
-                        className={cn("shrink-0 text-zinc-500 transition-transform", intervalOpen && "rotate-180")}
-                      />
-                    </button>
-                    {intervalOpen && (
-                      <>
-                        <button
-                          aria-hidden
-                          tabIndex={-1}
-                          className="fixed inset-0 z-10 cursor-default"
-                          onClick={() => setIntervalOpen(false)}
-                        />
-                        <div className="absolute inset-x-0 z-20 mt-1.5 overflow-hidden rounded-xl border border-white/10 bg-surface-800 shadow-2xl">
-                          {INTERVAL_OPTIONS.map((o) => (
-                            <button
-                              key={o.value}
-                              type="button"
-                              onClick={() => {
-                                setSbInterval(o.value);
-                                setIntervalOpen(false);
-                              }}
-                              className={cn(
-                                "flex w-full items-center justify-between px-3 py-2.5 text-left text-sm transition-colors",
-                                o.value === sbInterval
-                                  ? "bg-accent-500/10 font-medium text-accent-400"
-                                  : "text-zinc-300 hover:bg-white/[0.05]",
-                              )}
-                            >
-                              <span>{o.label}</span>
-                              {o.value === sbInterval && <Check size={14} />}
-                            </button>
-                          ))}
-                        </div>
-                      </>
-                    )}
-                  </div>
-                </div>
-                <label className="flex items-end gap-2 pb-2 text-xs text-zinc-400">
-                  <input
-                    type="checkbox"
-                    checked={sbCosts}
-                    onChange={(e) => setSbCosts(e.target.checked)}
-                    className="h-4 w-4 accent-emerald-500"
-                  />
-                  Incluir costos y ganancia
-                </label>
-              </div>
-              {sbLastPush && (
-                <p className="text-[11px] text-zinc-600">Última publicación: {sbLastPush}</p>
-              )}
-            </div>
-
-            <div className="mt-4 flex flex-wrap gap-2">
-              <Button variant="outline" onClick={handleSavePanelConfig}>
-                Guardar
-              </Button>
-              {sbSession ? (
-                <Button variant="ghost" onClick={handlePanelLogout}>
-                  Cerrar sesión
+            <div className="mt-4">
+              <Link to="/sincronizacion">
+                <Button variant="primary">
+                  <RefreshCcw size={15} />
+                  Abrir sincronización
                 </Button>
-              ) : (
-                <>
-                  <Button variant="outline" onClick={handlePanelLogin} loading={sbBusy}>
-                    <Lock size={15} />
-                    Iniciar sesión
-                  </Button>
-                  <Button variant="ghost" onClick={handlePanelSignup} disabled={sbBusy}>
-                    Crear cuenta gerente
-                  </Button>
-                </>
-              )}
-              <Button variant="primary" onClick={handlePublishNow} loading={sbBusy}>
-                <Cloud size={15} />
-                Publicar ahora
-              </Button>
+              </Link>
             </div>
-            <p className="mt-2 text-[11px] leading-relaxed text-zinc-600">
-              El auto-sync omite subidas si nada cambió (ahorra datos). En móvil solo sincroniza con la app abierta;
-              al volver al frente se actualiza solo.
-            </p>
           </Card>
         )}
 

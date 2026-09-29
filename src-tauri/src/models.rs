@@ -401,6 +401,149 @@ pub struct DbInfo {
     pub sales: i64,
 }
 
+// ---- Sync gerente <-> dependiente (Opcion C) ----
+#[derive(Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncExtra {
+    pub name: String,
+    pub kind: String,
+    pub amount: f64,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncMaterialRecipeRow {
+    pub component_uuid: String,
+    pub quantity: f64,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncMaterial {
+    pub uuid: String,
+    pub name: String,
+    pub unit: String,
+    pub stock: f64,
+    pub min_stock: f64,
+    pub cost_per_unit: f64,
+    pub is_elaborated: bool,
+    pub recipe_yield: f64,
+    #[serde(default)]
+    pub recipe: Vec<SyncMaterialRecipeRow>,
+    #[serde(default)]
+    pub extras: Vec<SyncExtra>,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncProductRecipeRow {
+    pub material_uuid: String,
+    pub quantity: f64,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncProduct {
+    pub uuid: String,
+    pub name: String,
+    pub category: String,
+    pub price: f64,
+    pub active: bool,
+    pub tracks_stock: bool,
+    pub stock: f64,
+    pub min_stock: f64,
+    pub manual_cost: f64,
+    #[serde(default)]
+    pub recipe: Vec<SyncProductRecipeRow>,
+    #[serde(default)]
+    pub extras: Vec<SyncExtra>,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct CatalogPayload {
+    pub version: i64,
+    #[serde(default)]
+    pub materials: Vec<SyncMaterial>,
+    #[serde(default)]
+    pub products: Vec<SyncProduct>,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct PendingSaleItem {
+    pub product_uuid: Option<String>,
+    pub product_name: String,
+    pub unit_price: f64,
+    pub unit_cost: f64,
+    pub quantity: i64,
+    pub subtotal: f64,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct PendingPayment {
+    pub amount: f64,
+    pub payment_method: String,
+    pub note: Option<String>,
+    pub created_at: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct PendingSale {
+    pub local_id: i64,
+    pub kind: String,
+    pub total: f64,
+    pub payment_method: Option<String>,
+    pub client_name: Option<String>,
+    pub client_phone: Option<String>,
+    pub note: Option<String>,
+    pub created_at: String,
+    #[serde(default)]
+    pub items: Vec<PendingSaleItem>,
+    #[serde(default)]
+    pub payments: Vec<PendingPayment>,
+    /// Para kind=credit_payment: local_id de la venta a credito origen (en el dependiente)
+    pub origin_credit_local_id: Option<i64>,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportBatchInput {
+    pub origin_device: String,
+    pub origin_label: Option<String>,
+    pub sale: PendingSale,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportBatchResult {
+    pub local_id: i64,
+    pub had_conflict: bool,
+    pub message: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncStatus {
+    pub device_id: String,
+    pub business_id: Option<String>,
+    pub role: String,
+    pub catalog_version: i64,
+    pub pending_out: i64,
+    pub pending_detail: Vec<PendingSale>,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncBusinessInput {
+    pub business_id: String,
+    pub role: String,
+    pub token: Option<String>,
+    pub label: Option<String>,
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Expense {

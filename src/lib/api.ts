@@ -121,4 +121,19 @@ export const api = {
   verifyManagerPin: (pin: string) => invoke<boolean>("verify_manager_pin", { pin }),
   setManagerPin: (pin: string) => invoke<void>("set_manager_pin", { pin }),
   getManagerPinHint: () => invoke<string>("get_manager_pin_hint"),
+
+  // Sync gerente <-> dependiente (Opcion C)
+  syncGetDevice: () => invoke<import("./types").SyncStatus>("sync_get_device"),
+  syncSetBusiness: (input: { businessId: string; role: string; token?: string | null; label?: string | null }) =>
+    invoke<import("./types").SyncStatus>("sync_set_business", { input }),
+  syncSetCatalogVersion: (version: number) => invoke<void>("sync_set_catalog_version", { version }),
+  syncExportCatalog: () => invoke<import("./types").CatalogPayload>("sync_export_catalog"),
+  syncImportCatalog: (payload: import("./types").CatalogPayload) =>
+    invoke<string>("sync_import_catalog", { payload }),
+  syncExportPending: (limit?: number) =>
+    invoke<import("./types").PendingSale[]>("sync_export_pending", { limit }),
+  syncMarkPushed: (localId: number, kind: string, batchId?: string | null) =>
+    invoke<void>("sync_mark_pushed", { localId, kind, batchId }),
+  syncImportBatch: (input: { originDevice: string; originLabel?: string | null; sale: import("./types").PendingSale }) =>
+    invoke<import("./types").ImportBatchResult>("sync_import_batch", { input }),
 };

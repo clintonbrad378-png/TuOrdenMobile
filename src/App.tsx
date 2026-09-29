@@ -7,7 +7,8 @@ import LicenseGate from "./components/LicenseGate";
 import RoleGate from "./components/RoleGate";
 import { ToastProvider } from "./components/ui";
 import { AuthProvider, useAuth } from "./lib/auth";
-import { usePanelAutoSync } from "./lib/usePanelAutoSync";
+import { useSyncAuto } from "./lib/useSyncAuto";
+import { useToast } from "./components/ui";
 import Configuracion from "./pages/Configuracion";
 import Gastos from "./pages/Gastos";
 import Licencia from "./pages/Licencia";
@@ -20,11 +21,13 @@ import Venta from "./pages/Venta";
 import Entradas from "./pages/Entradas";
 import Historial from "./pages/Historial";
 import Mermas from "./pages/Mermas";
+import Sincronizacion from "./pages/Sincronizacion";
 
 function DependienteGuard({ children }: { children: React.ReactNode }) {
   const { isDependiente } = useAuth();
   const loc = useLocation();
-  if (isDependiente && loc.pathname !== "/venta") {
+  // Dependiente solo vende (contado + credito + cobros en /venta) + sincronizacion para recibir menu/enviar ventas.
+  if (isDependiente && loc.pathname !== "/venta" && loc.pathname !== "/sincronizacion") {
     return <Navigate to="/venta" replace />;
   }
   return <>{children}</>;
@@ -44,7 +47,10 @@ function DependienteBanner() {
 }
 
 function Shell() {
-  usePanelAutoSync();
+  const toast = useToast();
+  useSyncAuto((msg, err) => {
+    if (msg) toast(err ? "error" : "success", msg);
+  });
   return (
     <div className="flex h-full">
       <Sidebar />
@@ -64,6 +70,7 @@ function Shell() {
               <Route path="/gastos" element={<Gastos />} />
               <Route path="/reportes" element={<Reportes />} />
               <Route path="/configuracion" element={<Configuracion />} />
+              <Route path="/sincronizacion" element={<Sincronizacion />} />
               <Route path="/licencia" element={<Licencia />} />
               <Route path="*" element={<Navigate to="/venta" replace />} />
             </Routes>
