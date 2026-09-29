@@ -118,7 +118,7 @@ export default function Sidebar() {
             </button>
           </div>
         )}
-        <p className="px-2 text-[11px] text-zinc-600">TuOrden v0.3.0 · SQLite local</p>
+        <p className="px-2 text-[11px] text-zinc-600">TuOrden v0.4.0 · SQLite local</p>
       </div>
     </aside>
   );

@@ -535,7 +535,7 @@ export default function Configuracion() {
           </h2>
           <div className="mt-3 space-y-1 text-xs text-zinc-500">
             <p>
-              <strong className="text-zinc-300">TuOrden POS</strong> · v0.3.0
+              <strong className="text-zinc-300">TuOrden POS</strong> · v0.4.0
             </p>
             <p>
               Punto de venta con control de inventario por recetas. Los materiales se descuentan
