@@ -8,11 +8,8 @@ use std::path::PathBuf;
 use tauri::State;
 
 const LICENSE_FILE: &str = "license.lic";
-/// Marca de demo consumida. Vive en un archivo aparte de `license.lic` y de la
-/// BD para que ni borrar la licencia ni restaurar un respaldo la reinicien.
-/// Solo se puede pedir una demo por dispositivo (limitación local: reinstalar
-/// la app desde cero la pierde, eso se acepta).
-const DEMO_FILE: &str = "demo_history.json";
+/// Duración de la licencia demo. La demo está siempre disponible y al
+/// activarla se vacía la base de datos para entregar un entorno limpio.
 const DEMO_DAYS: u64 = 7;
 
 #[derive(Serialize)]
@@ -66,45 +63,54 @@ fn read_license_file(state: &State<'_, AppState>) -> Result<LicenseFile, String>
     serde_json::from_str(&json).map_err(|e| format!("Archivo de licencia corrupto: {e}"))
 }
 
-#[derive(Serialize, Deserialize)]
-struct DemoMarker {
-    consumed: bool,
-    first_generated_at: u64,
-}
+/// Tablas con datos del negocio + configuración local. Se vacían al activar
+/// una demo para entregar un entorno limpio (hijos primero, aunque casi todo
+/// es ON DELETE CASCADE).
+const WIPE_TABLES: &[&str] = &[
+    "sale_items",
+    "credit_payments",
+    "credit_sale_items",
+    "sales",
+    "credit_sales",
+    "stock_movements",
+    "product_stock_movements",
+    "productions",
+    "material_productions",
+    "recipe_items",
+    "material_recipe_items",
+    "material_extra_costs",
+    "product_extra_costs",
+    "materials",
+    "products",
+    "expenses",
+    "synced_sales",
+    "sale_origin_map",
+    "sync_meta",
+    "app_config",
+];
 
-fn demo_path(state: &State<'_, AppState>) -> Result<PathBuf, String> {
-    let lic = license_path(state)?;
-    let dir = lic
-        .parent()
-        .ok_or_else(|| "Ruta inválida".to_string())?;
-    Ok(dir.join(DEMO_FILE))
-}
-
-/// ¿Ya se consumió la demo en este dispositivo?
-fn demo_consumed(state: &State<'_, AppState>) -> bool {
-    let path = match demo_path(state) {
-        Ok(p) => p,
-        Err(_) => return false,
-    };
-    if !path.exists() {
-        return false;
+/// Borra todos los registros en una transacción atómica y compacta la BD.
+/// Incluye configuración local (PIN gerente, sync) para un reset completo.
+fn wipe_all_data(state: &State<'_, AppState>) -> Result<(), String> {
+    let mut guard = state.db.lock().map_err(|_| "Error interno".to_string())?;
+    let tx = guard.transaction().map_err(|e| e.to_string())?;
+    for t in WIPE_TABLES {
+        tx.execute(&format!("DELETE FROM {t}"), [])
+            .map_err(|e| format!("No se pudo limpiar {t}: {e}"))?;
     }
-    match std::fs::read_to_string(&path) {
-        Ok(json) => serde_json::from_str::<DemoMarker>(&json)
-            .map(|m| m.consumed)
-            .unwrap_or(false),
-        Err(_) => false,
+    // Reiniciar contadores AUTOINCREMENT (puede no existir en BDs atípicas).
+    match tx.execute("DELETE FROM sqlite_sequence", []) {
+        Ok(_) => {},
+        Err(e) => {
+            if !e.to_string().contains("no such table") {
+                return Err(e.to_string());
+            }
+        }
     }
-}
-
-fn mark_demo_consumed(state: &State<'_, AppState>) -> Result<(), String> {
-    let marker = DemoMarker {
-        consumed: true,
-        first_generated_at: now_secs()?,
-    };
-    let json = serde_json::to_string_pretty(&marker).map_err(|e| e.to_string())?;
-    let path = demo_path(state)?;
-    std::fs::write(&path, json).map_err(|e| e.to_string())
+    tx.commit().map_err(|e| e.to_string())?;
+    // VACUUM fuera de la transacción para compactar el archivo.
+    guard.execute_batch("VACUUM").map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 fn now_secs() -> Result<u64, String> {
@@ -150,32 +156,12 @@ pub async fn license_generate(
     write_new_license(&state, expires_days)
 }
 
-/// Genera la licencia demo (7 días). Solo una vez por dispositivo: si ya se
-/// consumió, devuelve error y no toca la licencia vigente.
+/// Genera la licencia demo (7 días). Siempre disponible: primero vacía la
+/// base de datos para entregar un entorno limpio y luego crea la licencia.
 #[tauri::command]
 pub async fn license_generate_demo(state: State<'_, AppState>) -> Result<LicenseKey, String> {
-    if demo_consumed(&state) {
-        return Err(
-            "La licencia demo ya fue utilizada en este dispositivo. Contacta al proveedor para activar tu licencia."
-                .into(),
-        );
-    }
-    // Respaldo por si falla el marcado (no dejar al usuario sin su licencia).
-    let previous_license = license_path(&state)
-        .ok()
-        .and_then(|p| std::fs::read(p).ok());
-    let key = write_new_license(&state, Some(DEMO_DAYS))?;
-    // Si no se puede dejar constancia, se restaura la licencia previa (o se
-    // elimina la recién creada si no había) para no regalar demos.
-    if let Err(e) = mark_demo_consumed(&state) {
-        if let Some(prev) = previous_license {
-            let _ = std::fs::write(license_path(&state)?, prev);
-        } else if let Ok(p) = license_path(&state) {
-            let _ = std::fs::remove_file(p);
-        }
-        return Err(format!("No se pudo registrar la demo: {e}"));
-    }
-    Ok(key)
+    wipe_all_data(&state)?;
+    write_new_license(&state, Some(DEMO_DAYS))
 }
 
 #[tauri::command]
@@ -335,12 +321,8 @@ pub async fn license_verify(
 #[tauri::command]
 pub async fn license_check(state: State<'_, AppState>) -> Result<LicenseCheck, String> {
     let path = license_path(&state)?;
-    // Dispositivos actualizados que ya tenían licencia: se considera la demo
-    // consumida aunque no exista el marcador (evita una demo extra).
-    if path.exists() && !demo_consumed(&state) {
-        let _ = mark_demo_consumed(&state);
-    }
-    let demo_available = !demo_consumed(&state);
+    // La demo está siempre disponible: al activarla se vacía la BD.
+    let demo_available = true;
     if !path.exists() {
         return Ok(LicenseCheck {
             valid: false,

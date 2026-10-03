@@ -55,6 +55,10 @@ export default function LicenseGate({ children }: { children: React.ReactNode })
     }
   };
   const handleGenerateDemo = async () => {
+    const ok = window.confirm(
+      "La licencia demo (7 días) borrará TODOS los datos y registros de la aplicación para empezar limpio. ¿Continuar?",
+    );
+    if (!ok) return;
     setGenerating(true);
     setError(null);
     try {
@@ -184,16 +188,9 @@ export default function LicenseGate({ children }: { children: React.ReactNode })
                 variant="ghost"
                 onClick={handleGenerateDemo}
                 loading={generating}
-                disabled={check?.demoAvailable === false}
               >
-                {generating ? "Generando..." : "Generar licencia demo (7 días)"}
+                {generating ? "Generando..." : "Generar licencia demo (7 días, borra los datos)"}
               </Button>
-              {check?.demoAvailable === false && (
-                <p className="pt-1 text-center text-xs text-zinc-500">
-                  La demo ya fue utilizada en este dispositivo. Solo se permite una demo:
-                  contacta al proveedor para activar tu licencia.
-                </p>
-              )}
               {error && (
                 <p className="pt-1 text-center text-xs text-red-400">{error}</p>
               )}
