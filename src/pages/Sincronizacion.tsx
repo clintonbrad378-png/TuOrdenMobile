@@ -18,6 +18,7 @@ import {
   saveRelayConfig,
   setSyncIntervalMin,
   syncNow,
+  testRelay,
 } from "../lib/sync";
 import { Badge, Button, Card, Input, PageHeader, Spinner, cn, useToast } from "../components/ui";
 
@@ -76,6 +77,19 @@ export default function Sincronizacion() {
   const handleSaveRelay = () => {
     saveRelayConfig(sbUrl, sbAnon);
     toast("success", "Conexión guardada");
+  };
+
+  const handleTestRelay = async () => {
+    setBusy(true);
+    try {
+      saveRelayConfig(sbUrl, sbAnon);
+      const msg = await testRelay();
+      toast("success", msg);
+    } catch (e) {
+      toast("error", errMsg(e));
+    } finally {
+      setBusy(false);
+    }
   };
 
   const handleGenerate = async () => {
@@ -331,8 +345,9 @@ export default function Sincronizacion() {
                   <Input type="password" placeholder="eyJhbGciOi..." value={sbAnon} onChange={(e) => setSbAnon(e.target.value)} />
                 </div>
               </div>
-              <div className="mt-3">
+              <div className="mt-3 flex flex-wrap gap-2">
                 <Button variant="outline" onClick={handleSaveRelay}>Guardar conexión</Button>
+                <Button variant="ghost" onClick={handleTestRelay} loading={busy}>Probar conexión</Button>
               </div>
             </Card>
           </>

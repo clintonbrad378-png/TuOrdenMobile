@@ -51,6 +51,69 @@ export function getRelayClient(): SupabaseClient | null {
   return client;
 }
 
+/** Valida la config y devuelve el cliente, o lanza un error claro. */
+function requireRelay(): SupabaseClient {
+  const { url, anonKey } = getRelayConfig();
+  if (!url || !anonKey) throw new Error("Configura Supabase URL y anon key primero (Sincronización)");
+  assertRelayUrl(url);
+  const sb = getRelayClient();
+  if (!sb) throw new Error("Configura Supabase URL y anon key primero (Sincronización)");
+  return sb;
+}
+
+/** Valida solo la forma de la URL (el cliente puede ser nulo por falta de datos). */
+function assertRelayUrl(url: string) {
+  let protocol = "";
+  try {
+    protocol = new URL(url.trim()).protocol;
+  } catch {
+    throw new Error("La URL de Supabase no es válida. Debe verse como https://xyz.supabase.co");
+  }
+  if (protocol === "http:") {
+    throw new Error("Usa https:// en la URL (Android bloquea conexiones http sin cifrar)");
+  }
+  if (protocol !== "https:") {
+    throw new Error("La URL de Supabase no es válida. Debe verse como https://xyz.supabase.co");
+  }
+}
+
+/** ¿Fallo de red (el servidor no respondió)? */
+function isNetworkError(e: unknown): boolean {
+  if (e instanceof TypeError) return true;
+  const m = e instanceof Error ? e.message : typeof e === "string" ? e : "";
+  return /load failed|failed to fetch|networkerror|network request failed/i.test(m);
+}
+
+/** Traduce errores crípticos de red a pasos de revisión. */
+function syncErr(e: unknown, what: string): Error {
+  if (isNetworkError(e)) {
+    return new Error(
+      `No se pudo conectar con Supabase al ${what}. Revisa: 1) internet activo, 2) URL bien escrita con https://, 3) que el proyecto Supabase no esté pausado ni eliminado.`,
+    );
+  }
+  return e instanceof Error ? e : new Error(typeof e === "string" ? e : JSON.stringify(e));
+}
+
+/** Envuelve una llamada al relay para traducir fallos de red. */
+async function relay<T>(what: string, fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (e) {
+    throw syncErr(e, what);
+  }
+}
+
+/** Prueba la conexión: valida URL y hace una lectura mínima. */
+export async function testRelay(): Promise<string> {
+  const sb = requireRelay();
+  if (!isOnline()) throw new Error("Sin conexión a internet");
+  const { error } = await relay("probar la conexión", async () =>
+    sb.from("businesses").select("id", { count: "exact", head: true }),
+  );
+  if (error) throw new Error(error.message);
+  return "Conexión OK con Supabase";
+}
+
 export function getSyncIntervalMin(): number {
   try {
     const v = Number(readLS(INTERVAL_KEY) ?? "5");
@@ -102,13 +165,14 @@ export function isOnline(): boolean {
 
 /** Gerente: crea negocio (si no existe) + link de 6 digitos. Devuelve codigo para QR. */
 export async function generateLink(label = "caja-gerente"): Promise<{ code: string; businessId: string }> {
-  const sb = getRelayClient();
-  if (!sb) throw new Error("Configura Supabase URL y anon key primero (Sincronización)");
+  const sb = requireRelay();
   if (!isOnline()) throw new Error("Sin conexión a internet");
   const dev = await api.syncGetDevice();
   let businessId = dev.businessId;
   if (!businessId) {
-    const { data, error } = await sb.from("businesses").insert({ name: "Mi negocio", gerente_device_id: dev.deviceId }).select("id").single();
+    const { data, error } = await relay("crear el negocio", async () =>
+      sb.from("businesses").insert({ name: "Mi negocio", gerente_device_id: dev.deviceId }).select("id").single(),
+    );
     if (error) throw new Error(error.message);
     businessId = data.id as string;
     await api.syncSetBusiness({ businessId, role: "gerente", label });
@@ -118,62 +182,72 @@ export async function generateLink(label = "caja-gerente"): Promise<{ code: stri
   const code = randCode(6);
   const token = randToken();
   const tokenHash = await sha256hex(token);
-  const { error } = await sb.from("links").insert({
-    code,
-    business_id: businessId,
-    token_hash: tokenHash,
-    max_uses: 5,
-  });
+  const { error } = await relay("generar el código", async () =>
+    sb.from("links").insert({
+      code,
+      business_id: businessId,
+      token_hash: tokenHash,
+      max_uses: 5,
+    }),
+  );
   if (error) throw new Error(error.message);
   // Registrar/actualizar dispositivo gerente
-  await sb.from("devices").upsert({
-    device_id: (await api.syncGetDevice()).deviceId,
-    business_id: businessId,
-    role: "gerente",
-    label,
-  });
+  await relay("registrar el dispositivo", async () =>
+    sb.from("devices").upsert({
+      device_id: (await api.syncGetDevice()).deviceId,
+      business_id: businessId,
+      role: "gerente",
+      label,
+    }),
+  );
   return { code, businessId };
 }
 
 /** Dependiente: canjea codigo y queda emparejado. */
 export async function redeemLink(code: string, label = "caja-dependiente"): Promise<{ businessId: string }> {
-  const sb = getRelayClient();
-  if (!sb) throw new Error("Configura Supabase URL y anon key primero");
+  const sb = requireRelay();
   const clean = code.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
   if (clean.length < 4) throw new Error("Código inválido");
   if (!isOnline()) throw new Error("Sin conexión a internet");
-  const { data, error } = await sb.rpc("redeem_link", { p_code: clean });
+  const { data, error } = await relay("vincular el dispositivo", async () =>
+    sb.rpc("redeem_link", { p_code: clean }),
+  );
   if (error) throw new Error(error.message);
   const row = Array.isArray(data) ? data[0] : data;
   const businessId = (row?.business_id ?? row?.businessId) as string;
   if (!businessId) throw new Error("Código no válido");
   const dev = await api.syncGetDevice();
-  await sb.from("devices").upsert({ device_id: dev.deviceId, business_id: businessId, role: "dependiente", label });
+  await relay("vincular el dispositivo", async () =>
+    sb.from("devices").upsert({ device_id: dev.deviceId, business_id: businessId, role: "dependiente", label }),
+  );
   await api.syncSetBusiness({ businessId, role: "dependiente", label });
   return { businessId };
 }
 
 /** Gerente manual: publica catalogo (materiales+productos+stock). Version = max+1. */
 export async function pushCatalog(): Promise<{ version: number; count: string }> {
-  const sb = getRelayClient();
-  if (!sb) throw new Error("Configura Supabase primero");
+  const sb = requireRelay();
   if (!isOnline()) throw new Error("Sin conexión a internet");
   const dev = await api.syncGetDevice();
   if (!dev.businessId) throw new Error("Primero genera un código de negocio");
   const catalog = await api.syncExportCatalog();
-  const { data: latest } = await sb
-    .from("catalog_snapshots")
-    .select("version")
-    .eq("business_id", dev.businessId)
-    .order("version", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+  const { data: latest } = await relay("publicar el catálogo", async () =>
+    sb
+      .from("catalog_snapshots")
+      .select("version")
+      .eq("business_id", dev.businessId)
+      .order("version", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+  );
   const version = ((latest?.version as number | undefined) ?? dev.catalogVersion ?? 0) + 1;
-  const { error } = await sb.from("catalog_snapshots").upsert({
-    business_id: dev.businessId,
-    version,
-    payload: { ...catalog, version },
-  });
+  const { error } = await relay("publicar el catálogo", async () =>
+    sb.from("catalog_snapshots").upsert({
+      business_id: dev.businessId,
+      version,
+      payload: { ...catalog, version },
+    }),
+  );
   if (error) throw new Error(error.message);
   await api.syncSetCatalogVersion(version);
   setLastSync(new Date().toISOString());
@@ -182,20 +256,21 @@ export async function pushCatalog(): Promise<{ version: number; count: string }>
 
 /** Dependiente (y gerente al abrir): baja ultimo catalogo si es mas nuevo. Push-before-pull. */
 export async function pullCatalog(): Promise<{ applied: boolean; version: number }> {
-  const sb = getRelayClient();
-  if (!sb) throw new Error("Configura Supabase primero");
+  const sb = requireRelay();
   if (!isOnline()) throw new Error("Sin conexión a internet");
   const dev = await api.syncGetDevice();
   if (!dev.businessId) throw new Error("Únete con un código primero");
   // Push-before-pull: no perder deducciones pendientes.
   await pushSales(true);
-  const { data, error } = await sb
-    .from("catalog_snapshots")
-    .select("version, payload")
-    .eq("business_id", dev.businessId)
-    .order("version", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+  const { data, error } = await relay("descargar el catálogo", async () =>
+    sb
+      .from("catalog_snapshots")
+      .select("version, payload")
+      .eq("business_id", dev.businessId)
+      .order("version", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+  );
   if (error) throw new Error(error.message);
   if (!data) return { applied: false, version: dev.catalogVersion };
   const remoteVersion = data.version as number;
@@ -219,6 +294,7 @@ export async function pushSales(quiet = false): Promise<{ uploaded: number }> {
     if (quiet) return { uploaded: 0 };
     throw new Error("Configura Supabase primero");
   }
+  assertRelayUrl(getRelayConfig().url);
   if (!isOnline()) {
     if (quiet) return { uploaded: 0 };
     throw new Error("Sin conexión a internet");
@@ -232,24 +308,26 @@ export async function pushSales(quiet = false): Promise<{ uploaded: number }> {
   if (pending.length === 0) return { uploaded: 0 };
   let uploaded = 0;
   for (const sale of pending) {
-    const { data, error } = await sb
-      .from("sales_batches")
-      .upsert(
-        {
-          business_id: dev.businessId,
-          device_id: dev.deviceId,
-          kind: sale.kind,
-          local_id: sale.localId,
-          payload: {
-            ...sale,
-            origin_credit_local_id: sale.originCreditLocalId ?? null,
+    const { data, error } = await relay("enviar las ventas", async () =>
+      sb
+        .from("sales_batches")
+        .upsert(
+          {
+            business_id: dev.businessId,
+            device_id: dev.deviceId,
+            kind: sale.kind,
+            local_id: sale.localId,
+            payload: {
+              ...sale,
+              origin_credit_local_id: sale.originCreditLocalId ?? null,
+            },
+            created_at_device: sale.createdAt,
           },
-          created_at_device: sale.createdAt,
-        },
-        { onConflict: "business_id,device_id,kind,local_id" },
-      )
-      .select("id")
-      .single();
+          { onConflict: "business_id,device_id,kind,local_id" },
+        )
+        .select("id")
+        .single(),
+    );
     if (error) {
       if (quiet) continue;
       throw new Error(error.message);
@@ -263,18 +341,19 @@ export async function pushSales(quiet = false): Promise<{ uploaded: number }> {
 
 /** Gerente: baja ventas del relay y las importa (idempotente, acepta ambas). */
 export async function pullSales(): Promise<{ imported: number; conflicts: number }> {
-  const sb = getRelayClient();
-  if (!sb) throw new Error("Configura Supabase primero");
+  const sb = requireRelay();
   if (!isOnline()) throw new Error("Sin conexión a internet");
   const dev = await api.syncGetDevice();
   if (!dev.businessId) throw new Error("Primero genera un código de negocio");
-  const { data, error } = await sb
-    .from("sales_batches")
-    .select("device_id, kind, local_id, payload")
-    .eq("business_id", dev.businessId)
-    .neq("device_id", dev.deviceId)
-    .order("created_at", { ascending: true })
-    .limit(200);
+  const { data, error } = await relay("recibir las ventas", async () =>
+    sb
+      .from("sales_batches")
+      .select("device_id, kind, local_id, payload")
+      .eq("business_id", dev.businessId)
+      .neq("device_id", dev.deviceId)
+      .order("created_at", { ascending: true })
+      .limit(200),
+  );
   if (error) throw new Error(error.message);
   let imported = 0;
   let conflicts = 0;
