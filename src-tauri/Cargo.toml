@@ -1,8 +1,8 @@
 [package]
 name = "tauri-app"
-version = "0.3.0"
-description = "A Tauri App"
-authors = ["you"]
+version = "0.4.0"
+description = "TuOrden POS - punto de venta"
+authors = ["TuOrden"]
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
