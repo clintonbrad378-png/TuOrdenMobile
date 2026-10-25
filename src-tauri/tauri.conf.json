@@ -44,6 +44,7 @@
       "icons/icon.ico"
     ],
     "windows": {
+      "allowDowngrades": true,
       "webviewInstallMode": {
         "type": "embedBootstrapper"
       },
@@ -53,8 +54,7 @@
       "nsis": {
         "installMode": "both",
         "languages": ["Spanish", "English"],
-        "displayLanguageSelector": true,
-        "allowDowngrades": true
+        "displayLanguageSelector": true
       }
     }
   }
