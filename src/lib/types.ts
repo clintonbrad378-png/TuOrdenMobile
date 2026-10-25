@@ -521,3 +521,46 @@ export interface SyncStatus {
   pendingOut: number;
   pendingDetail: PendingSale[];
 }
+
+// ---- Usuarios y niveles de acceso ----
+export type UserRole = "gerente" | "usuario";
+
+export type AccessLevel =
+  | "dependiente"
+  | "inventario"
+  | "finanzas"
+  | "personalizado";
+
+export interface AuthStatus {
+  ownerExists: boolean;
+  ownerHasPin: boolean;
+}
+
+export interface LoginUser {
+  id: number;
+  name: string;
+  role: UserRole;
+  accessLevel: AccessLevel | string;
+  isOwner: boolean;
+  hasPin: boolean;
+}
+
+export interface AppUser extends LoginUser {
+  active: boolean;
+  permissions: string[];
+  lastLoginAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateUserInput {
+  name: string;
+  accessLevel: string;
+  pin?: string | null;
+  permissions: string[];
+}
+
+export interface UpdateUserInput extends CreateUserInput {
+  active: boolean;
+  removePin: boolean;
+}

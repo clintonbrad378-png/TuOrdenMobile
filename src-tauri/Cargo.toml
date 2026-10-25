@@ -27,4 +27,5 @@ tauri-plugin-dialog = "2.7.2"
 ed25519-dalek = { version = "2", features = ["rand_core"] }
 rand = "0.8"
 base64 = "0.21"
+bcrypt = "0.19"
 

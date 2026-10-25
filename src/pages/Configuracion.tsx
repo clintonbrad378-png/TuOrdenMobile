@@ -23,7 +23,7 @@ import {
 import { api } from "../lib/api";
 import type { DbInfo, LicenseCheck } from "../lib/types";
 import { errMsg, humanSize, isoToday } from "../lib/format";
-import { useAuth } from "../lib/auth";
+import UsersAccessManager from "../components/UsersAccessManager";
 import {
   Badge,
   Button,
@@ -41,8 +41,7 @@ export default function Configuracion() {
   const [restoring, setRestoring] = useState(false);
   const [restorePath, setRestorePath] = useState<string | null>(null);
   const toast = useToast();
-  const { isDependiente } = useAuth();
-  const [pinHint, setPinHint] = useState<string>("");
+  const [ownerHasPin, setOwnerHasPin] = useState(false);
   const [currentPin, setCurrentPin] = useState("");
   const [newPin, setNewPin] = useState("");
   const [confirmPin, setConfirmPin] = useState("");
@@ -64,19 +63,15 @@ export default function Configuracion() {
       setLicCheck(await api.licenseCheck());
     } catch {}
     try {
-      if (!isDependiente) {
-        const hint = await api.getManagerPinHint();
-        setPinHint(hint);
-      }
+      const status = await api.authStatus();
+      setOwnerHasPin(status.ownerHasPin);
     } catch {}
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isDependiente]);
+  }, [toast]);
 
   useEffect(() => {
     load();
   }, [load]);
 
-  // Cargar config del panel + sesión Supabase
   const createBackup = async () => {
     setBackingUp(true);
     try {
@@ -160,7 +155,7 @@ export default function Configuracion() {
   };
 
   const handleChangePin = async () => {
-    const hasPin = pinHint !== "";
+    const hasPin = ownerHasPin;
     if ((hasPin && !currentPin.trim()) || !newPin.trim() || !confirmPin.trim()) {
       toast("error", "Completa todos los campos de PIN");
       return;
@@ -175,16 +170,8 @@ export default function Configuracion() {
     }
     setSavingPin(true);
     try {
-      if (hasPin) {
-        const ok = await api.verifyManagerPin(currentPin.trim());
-        if (!ok) {
-          toast("error", "PIN actual incorrecto");
-          return;
-        }
-      }
-      await api.setManagerPin(newPin.trim());
-      const hint = await api.getManagerPinHint();
-      setPinHint(hint);
+      await api.setOwnerPin(newPin.trim(), hasPin ? currentPin.trim() : null);
+      setOwnerHasPin(true);
       setCurrentPin("");
       setNewPin("");
       setConfirmPin("");
@@ -201,7 +188,7 @@ export default function Configuracion() {
       <div className="mx-auto max-w-3xl px-4 py-5 sm:px-8 sm:py-8">
         <PageHeader
           title="Configuración"
-          subtitle="Respaldos y estado de tu base de datos"
+          subtitle="Respaldos, usuarios y estado de tu base de datos"
           actions={
             <Button variant="ghost" size="sm" onClick={load}>
               <RotateCcw size={14} />
@@ -278,8 +265,7 @@ export default function Configuracion() {
         </Card>
 
         {/* Licencia y renovación */}
-        {!isDependiente && (
-          <Card className="mt-6 p-5">
+        <Card className="mt-6 p-5">
             <div className="flex items-center justify-between gap-2">
               <h2 className="flex items-center gap-2 text-sm font-medium text-zinc-200">
                 <KeyRound size={16} className="text-accent-400" />
@@ -414,100 +400,91 @@ export default function Configuracion() {
                 </div>
               </>
             )}
-          </Card>
-        )}
+        </Card>
 
         {/* PIN Gerente */}
-        {!isDependiente ? (
-          <Card className="mt-6 p-5">
-            <div className="flex items-center justify-between">
-              <h2 className="flex items-center gap-2 text-sm font-medium text-zinc-200">
-                <Lock size={16} className="text-accent-400" />
-                PIN de Gerente
-              </h2>
-              <Badge tone={pinHint ? "accent" : "zinc"}>{pinHint ? `Actual: ${pinHint}` : "Sin configurar"}</Badge>
-            </div>
-            <p className="mt-1.5 text-xs leading-relaxed text-zinc-500">
-              Este PIN protege el acceso completo a la app. El modo dependiente no lo necesita.
-            </p>
+        <Card className="mt-6 p-5">
+          <div className="flex items-center justify-between">
+            <h2 className="flex items-center gap-2 text-sm font-medium text-zinc-200">
+              <Lock size={16} className="text-accent-400" />
+              PIN de Gerente
+            </h2>
+            <Badge tone={ownerHasPin ? "accent" : "zinc"}>
+              {ownerHasPin ? "Configurado" : "Sin configurar"}
+            </Badge>
+          </div>
+          <p className="mt-1.5 text-xs leading-relaxed text-zinc-500">
+            Este PIN protege la configuración, los respaldos y la administración de usuarios.
+            El propietario siempre entra con PIN.
+          </p>
 
-            <div className="mt-4 grid gap-3">
-              {pinHint !== "" && (
-                <div className="grid gap-1.5">
-                  <label className="text-xs font-medium text-zinc-400">PIN actual</label>
-                  <div className="relative">
-                    <Input
-                      type={showPins ? "text" : "password"}
-                      inputMode="numeric"
-                      placeholder="Ingresa PIN actual"
-                      value={currentPin}
-                      onChange={(e) => setCurrentPin(e.target.value.replace(/\D/g, "").slice(0, 12))}
-                      className="pr-9"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPins((v) => !v)}
-                      className="absolute top-1/2 right-2 -translate-y-1/2 rounded-md p-1 text-zinc-500 hover:bg-white/5"
-                    >
-                      {showPins ? <EyeOff size={14} /> : <Eye size={14} />}
-                    </button>
-                  </div>
+          <div className="mt-4 grid gap-3">
+            {ownerHasPin && (
+              <div className="grid gap-1.5">
+                <label className="text-xs font-medium text-zinc-400">PIN actual</label>
+                <div className="relative">
+                  <Input
+                    type={showPins ? "text" : "password"}
+                    inputMode="numeric"
+                    placeholder="Ingresa PIN actual"
+                    value={currentPin}
+                    onChange={(e) => setCurrentPin(e.target.value.replace(/\D/g, "").slice(0, 12))}
+                    className="pr-9"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPins((v) => !v)}
+                    className="absolute top-1/2 right-2 -translate-y-1/2 rounded-md p-1 text-zinc-500 hover:bg-white/5"
+                  >
+                    {showPins ? <EyeOff size={14} /> : <Eye size={14} />}
+                  </button>
                 </div>
-              )}
-              <div className="grid gap-1.5">
-                <label className="text-xs font-medium text-zinc-400">Nuevo PIN (4-12 dígitos)</label>
-                <Input
-                  type={showPins ? "text" : "password"}
-                  inputMode="numeric"
-                  placeholder="Nuevo PIN"
-                  value={newPin}
-                  onChange={(e) => setNewPin(e.target.value.replace(/\D/g, "").slice(0, 12))}
-                />
               </div>
-              <div className="grid gap-1.5">
-                <label className="text-xs font-medium text-zinc-400">Confirmar nuevo PIN</label>
-                <Input
-                  type={showPins ? "text" : "password"}
-                  inputMode="numeric"
-                  placeholder="Repite el nuevo PIN"
-                  value={confirmPin}
-                  onChange={(e) => setConfirmPin(e.target.value.replace(/\D/g, "").slice(0, 12))}
-                />
-              </div>
+            )}
+            <div className="grid gap-1.5">
+              <label className="text-xs font-medium text-zinc-400">Nuevo PIN (4-12 dígitos)</label>
+              <Input
+                type={showPins ? "text" : "password"}
+                inputMode="numeric"
+                placeholder="Nuevo PIN"
+                value={newPin}
+                onChange={(e) => setNewPin(e.target.value.replace(/\D/g, "").slice(0, 12))}
+              />
             </div>
+            <div className="grid gap-1.5">
+              <label className="text-xs font-medium text-zinc-400">Confirmar nuevo PIN</label>
+              <Input
+                type={showPins ? "text" : "password"}
+                inputMode="numeric"
+                placeholder="Repite el nuevo PIN"
+                value={confirmPin}
+                onChange={(e) => setConfirmPin(e.target.value.replace(/\D/g, "").slice(0, 12))}
+              />
+            </div>
+          </div>
 
-            <div className="mt-4 flex gap-2">
-              <Button variant="primary" onClick={handleChangePin} loading={savingPin}>
-                <Shield size={15} />
-                {savingPin ? "Guardando..." : pinHint ? "Actualizar PIN" : "Crear PIN"}
-              </Button>
-              <Button
-                variant="ghost"
-                onClick={() => {
-                  setCurrentPin("");
-                  setNewPin("");
-                  setConfirmPin("");
-                }}
-              >
-                Limpiar
-              </Button>
-            </div>
-          </Card>
-        ) : (
-          <Card className="mt-6 p-5 border-amber-500/15 bg-amber-500/[0.04]">
-            <div className="flex items-center gap-2 text-sm font-medium text-amber-300">
-              <Shield size={16} />
-              Modo dependiente activo
-            </div>
-            <p className="mt-1.5 text-xs leading-relaxed text-zinc-500">
-              No tienes permiso para cambiar el PIN de gerente ni ver esta configuración completa. Inicia sesión como gerente para gestionar el PIN.
-            </p>
-          </Card>
-        )}
+          <div className="mt-4 flex gap-2">
+            <Button variant="primary" onClick={handleChangePin} loading={savingPin}>
+              <Shield size={15} />
+              {savingPin ? "Guardando..." : ownerHasPin ? "Actualizar PIN" : "Crear PIN"}
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setCurrentPin("");
+                setNewPin("");
+                setConfirmPin("");
+              }}
+            >
+              Limpiar
+            </Button>
+          </div>
+        </Card>
+
+        <UsersAccessManager />
 
         {/* Sincronizacion gerente <-> dependiente */}
-        {!isDependiente && (
-          <Card className="mt-6 p-5">
+        <Card className="mt-6 p-5">
             <h2 className="flex items-center gap-2 text-sm font-medium text-zinc-200">
               <RefreshCcw size={16} className="text-accent-400" />
               Sincronización con dependientes
@@ -525,7 +502,6 @@ export default function Configuracion() {
               </Link>
             </div>
           </Card>
-        )}
 
         {/* About */}
         <Card className="mt-6 p-5">

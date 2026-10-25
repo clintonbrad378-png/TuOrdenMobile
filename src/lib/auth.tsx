@@ -1,85 +1,129 @@
-import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
 import { api } from "./api";
-
-export type Role = "gerente" | "dependiente";
+import { canAccess, type SectionKey } from "./access";
+import type { AppUser } from "./types";
 
 interface AuthContextValue {
-  role: Role | null;
-  isGerente: boolean;
-  isDependiente: boolean;
-  loginGerente: (pin: string) => Promise<boolean>;
-  loginDependiente: () => void;
+  user: AppUser | null;
+  loading: boolean;
+  isOwner: boolean;
+  can: (section: SectionKey) => boolean;
+  login: (userId: number, pin?: string | null) => Promise<AppUser>;
   logout: () => void;
-  switchToDependiente: () => void;
+  refresh: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-const STORAGE_KEY = "tuorden_role";
+const STORAGE_KEY = "tuorden_user_id";
+
+function storedUserId(): number | null {
+  try {
+    const raw = sessionStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    const id = Number(raw);
+    return Number.isFinite(id) && id > 0 ? id : null;
+  } catch {
+    return null;
+  }
+}
+
+function clearStoredUserId() {
+  try {
+    sessionStorage.removeItem(STORAGE_KEY);
+  } catch {}
+}
+
+export function clearStoredSession() {
+  clearStoredUserId();
+}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [role, setRole] = useState<Role | null>(() => {
-    try {
-      const v = sessionStorage.getItem(STORAGE_KEY) as Role | null;
-      if (v === "gerente" || v === "dependiente") return v;
-    } catch {}
-    return null;
-  });
+  const [user, setUser] = useState<AppUser | null>(null);
+  const [loading, setLoading] = useState(() => storedUserId() !== null);
 
-  const persist = useCallback((r: Role | null) => {
-    setRole(r);
-    try {
-      if (r) sessionStorage.setItem(STORAGE_KEY, r);
-      else sessionStorage.removeItem(STORAGE_KEY);
-    } catch {}
-  }, []);
-
-  // Sync across tabs? not needed but listen to storage
   useEffect(() => {
-    const onStorage = (e: StorageEvent) => {
-      if (e.key === STORAGE_KEY) {
-        const v = e.newValue as Role | null;
-        if (v === "gerente" || v === "dependiente") setRole(v);
-        else if (e.newValue === null) setRole(null);
-      }
+    const id = storedUserId();
+    if (!id) {
+      setLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setLoading(true);
+    api
+      .getSessionUser(id)
+      .then((restored) => {
+        if (!cancelled) setUser(restored);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          clearStoredUserId();
+          setUser(null);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
     };
-    window.addEventListener("storage", onStorage);
-    return () => window.removeEventListener("storage", onStorage);
   }, []);
 
-  const loginGerente = useCallback(async (pin: string) => {
-    const ok = await api.verifyManagerPin(pin);
-    if (ok) persist("gerente");
-    return ok;
-  }, [persist]);
-
-  const loginDependiente = useCallback(() => {
-    persist("dependiente");
-  }, [persist]);
+  const login = useCallback(async (userId: number, pin?: string | null) => {
+    const authenticated = await api.loginUser(userId, pin ?? null);
+    try {
+      sessionStorage.setItem(STORAGE_KEY, String(authenticated.id));
+    } catch {}
+    setUser(authenticated);
+    return authenticated;
+  }, []);
 
   const logout = useCallback(() => {
-    persist(null);
-  }, [persist]);
+    clearStoredUserId();
+    setUser(null);
+  }, []);
 
-  const switchToDependiente = useCallback(() => {
-    persist("dependiente");
-  }, [persist]);
+  const refresh = useCallback(async () => {
+    const id = user?.id ?? storedUserId();
+    if (!id) return;
+    try {
+      const restored = await api.getSessionUser(id);
+      setUser(restored);
+    } catch {
+      clearStoredUserId();
+      setUser(null);
+    }
+  }, [user?.id]);
 
-  return (
-    <AuthContext.Provider
-      value={{
-        role,
-        isGerente: role === "gerente",
-        isDependiente: role === "dependiente",
-        loginGerente,
-        loginDependiente,
-        logout,
-        switchToDependiente,
-      }}
-    >
-      {children}
-    </AuthContext.Provider>
+  const can = useCallback(
+    (section: SectionKey) => (user ? canAccess(user, section) : false),
+    [user],
   );
+
+  const value = useMemo<AuthContextValue>(
+    () => ({
+      user,
+      loading,
+      isOwner: user?.isOwner ?? false,
+      can,
+      login,
+      logout,
+      refresh,
+    }),
+    [user, loading, can, login, logout, refresh],
+  );
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
 export function useAuth() {

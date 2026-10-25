@@ -32,7 +32,7 @@ const INTERVAL_OPTIONS = [
 
 export default function Sincronizacion() {
   const toast = useToast();
-  const { isDependiente } = useAuth();
+  const { isOwner } = useAuth();
   const [status, setStatus] = useState<SyncStatus | null>(null);
   const [sbUrl, setSbUrl] = useState("");
   const [sbAnon, setSbAnon] = useState("");
@@ -189,7 +189,9 @@ export default function Sincronizacion() {
   };
 
   const connected = !!getRelayClient();
-  const role = status?.role ?? (isDependiente ? "dependiente" : "gerente");
+  const role = status?.role ?? "gerente";
+  const isDependienteDevice = role === "dependiente";
+  const canManageLink = isOwner && !isDependienteDevice;
 
   return (
     <div className="h-full overflow-y-auto">
@@ -239,11 +241,11 @@ export default function Sincronizacion() {
                   <RefreshCw size={15} />
                   Sincronizar ahora
                 </Button>
-                {role === "dependiente" ? (
+                {isDependienteDevice ? (
                   <Button variant="outline" onClick={handlePullCatalog} disabled={busy}>
                     Descargar menú
                   </Button>
-                ) : (
+                ) : isOwner ? (
                   <>
                     <Button variant="outline" onClick={handlePushCatalog} disabled={busy}>
                       Publicar catálogo
@@ -252,7 +254,7 @@ export default function Sincronizacion() {
                       Recibir ventas
                     </Button>
                   </>
-                )}
+                ) : null}
               </div>
               <div className="mt-4 flex items-center gap-2">
                 <span className="text-xs text-zinc-400">Auto-sync con app abierta:</span>
@@ -280,7 +282,7 @@ export default function Sincronizacion() {
               </p>
             </Card>
 
-            {!isDependiente && (
+            {canManageLink && (
               <Card className="mt-6 p-5">
                 <h2 className="flex items-center gap-2 text-sm font-medium text-zinc-200">
                   <QrCode size={16} className="text-accent-400" />
@@ -311,7 +313,7 @@ export default function Sincronizacion() {
               </Card>
             )}
 
-            {isDependiente && (
+            {isDependienteDevice && (
               <Card className="mt-6 p-5">
                 <h2 className="text-sm font-medium text-zinc-200">Unirse con código</h2>
                 <p className="mt-1.5 text-xs text-zinc-500">Pide al gerente su código de 6 letras e ingrésalo una vez.</p>
@@ -329,27 +331,29 @@ export default function Sincronizacion() {
               </Card>
             )}
 
-            <Card className="mt-6 p-5">
-              <h2 className="text-sm font-medium text-zinc-200">Conexión Supabase (relay)</h2>
-              <p className="mt-1.5 text-xs text-zinc-500">
-                Mismo proyecto que usabas para el panel. Solo es buzón de intercambio, la venta sigue offline.
-                {connected ? "" : " Pega URL y anon key."}
-              </p>
-              <div className="mt-3 grid gap-3">
-                <div className="grid gap-1.5">
-                  <label className="text-xs font-medium text-zinc-400">Supabase URL</label>
-                  <Input placeholder="https://xyz.supabase.co" value={sbUrl} onChange={(e) => setSbUrl(e.target.value)} />
+            {(isOwner || isDependienteDevice) && (
+              <Card className="mt-6 p-5">
+                <h2 className="text-sm font-medium text-zinc-200">Conexión Supabase (relay)</h2>
+                <p className="mt-1.5 text-xs text-zinc-500">
+                  Mismo proyecto que usabas para el panel. Solo es buzón de intercambio, la venta sigue offline.
+                  {connected ? "" : " Pega URL y anon key."}
+                </p>
+                <div className="mt-3 grid gap-3">
+                  <div className="grid gap-1.5">
+                    <label className="text-xs font-medium text-zinc-400">Supabase URL</label>
+                    <Input placeholder="https://xyz.supabase.co" value={sbUrl} onChange={(e) => setSbUrl(e.target.value)} />
+                  </div>
+                  <div className="grid gap-1.5">
+                    <label className="text-xs font-medium text-zinc-400">Anon key</label>
+                    <Input type="password" placeholder="eyJhbGciOi..." value={sbAnon} onChange={(e) => setSbAnon(e.target.value)} />
+                  </div>
                 </div>
-                <div className="grid gap-1.5">
-                  <label className="text-xs font-medium text-zinc-400">Anon key</label>
-                  <Input type="password" placeholder="eyJhbGciOi..." value={sbAnon} onChange={(e) => setSbAnon(e.target.value)} />
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Button variant="outline" onClick={handleSaveRelay}>Guardar conexión</Button>
+                  <Button variant="ghost" onClick={handleTestRelay} loading={busy}>Probar conexión</Button>
                 </div>
-              </div>
-              <div className="mt-3 flex flex-wrap gap-2">
-                <Button variant="outline" onClick={handleSaveRelay}>Guardar conexión</Button>
-                <Button variant="ghost" onClick={handleTestRelay} loading={busy}>Probar conexión</Button>
-              </div>
-            </Card>
+              </Card>
+            )}
           </>
         )}
       </div>

@@ -401,6 +401,66 @@ pub struct DbInfo {
     pub sales: i64,
 }
 
+// ---- Usuarios y niveles de acceso ----
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthStatus {
+    pub owner_exists: bool,
+    pub owner_has_pin: bool,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LoginUser {
+    pub id: i64,
+    pub name: String,
+    pub role: String,
+    pub access_level: String,
+    pub is_owner: bool,
+    pub has_pin: bool,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct User {
+    pub id: i64,
+    pub name: String,
+    pub role: String,
+    pub access_level: String,
+    pub active: bool,
+    pub is_owner: bool,
+    pub has_pin: bool,
+    pub permissions: Vec<String>,
+    pub last_login_at: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateUserInput {
+    pub name: String,
+    pub access_level: String,
+    #[serde(default)]
+    pub pin: Option<String>,
+    #[serde(default)]
+    pub permissions: Vec<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateUserInput {
+    pub name: String,
+    pub access_level: String,
+    pub active: bool,
+    #[serde(default)]
+    pub pin: Option<String>,
+    #[serde(default)]
+    pub remove_pin: bool,
+    #[serde(default)]
+    pub permissions: Vec<String>,
+}
+
 // ---- Sync gerente <-> dependiente (Opcion C) ----
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]

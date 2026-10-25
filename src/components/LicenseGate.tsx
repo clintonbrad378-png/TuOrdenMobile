@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import { ShieldAlert, RefreshCw, KeyRound, QrCode } from "lucide-react";
 import { api } from "../lib/api";
+import { clearStoredSession } from "../lib/auth";
 import type { LicenseCheck } from "../lib/types";
 import { Button, Card, Spinner } from "./ui";
 
@@ -63,7 +64,8 @@ export default function LicenseGate({ children }: { children: React.ReactNode })
     setError(null);
     try {
       await api.licenseGenerateDemo();
-      await doCheck();
+      clearStoredSession();
+      window.location.reload();
     } catch (e) {
       setError(e instanceof Error ? e.message : typeof e === "string" ? e : JSON.stringify(e));
     } finally {

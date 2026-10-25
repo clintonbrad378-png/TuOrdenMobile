@@ -116,11 +116,29 @@ export const api = {
   deleteExpense: (id: number) => invoke<void>("delete_expense", { id }),
   getNetProfit: (from: string, to: string) => invoke<NetProfitData>("get_net_profit", { from, to }),
 
-  // Auth - manager PIN
-  managerPinExists: () => invoke<boolean>("manager_pin_exists"),
-  verifyManagerPin: (pin: string) => invoke<boolean>("verify_manager_pin", { pin }),
-  setManagerPin: (pin: string) => invoke<void>("set_manager_pin", { pin }),
-  getManagerPinHint: () => invoke<string>("get_manager_pin_hint"),
+  // Auth - usuarios y niveles de acceso
+  authStatus: () => invoke<import("./types").AuthStatus>("auth_status"),
+  listLoginUsers: () =>
+    invoke<import("./types").LoginUser[]>("list_login_users"),
+  loginUser: (userId: number, pin?: string | null) =>
+    invoke<import("./types").AppUser>("login_user", { userId, pin }),
+  getSessionUser: (userId: number) =>
+    invoke<import("./types").AppUser>("get_session_user", { userId }),
+  setOwnerPin: (pin: string, currentPin?: string | null) =>
+    invoke<void>("set_owner_pin", { pin, currentPin }),
+  listUsers: (actorId: number) =>
+    invoke<import("./types").AppUser[]>("list_users", { actorId }),
+  createUser: (actorId: number, input: import("./types").CreateUserInput) =>
+    invoke<import("./types").AppUser>("create_user", { actorId, input }),
+  updateUser: (
+    actorId: number,
+    id: number,
+    input: import("./types").UpdateUserInput,
+  ) => invoke<import("./types").AppUser>("update_user", { actorId, id, input }),
+  setUserActive: (actorId: number, id: number, active: boolean) =>
+    invoke<import("./types").AppUser>("set_user_active", { actorId, id, active }),
+  deleteUser: (actorId: number, id: number) =>
+    invoke<void>("delete_user", { actorId, id }),
 
   // Sync gerente <-> dependiente (Opcion C)
   syncGetDevice: () => invoke<import("./types").SyncStatus>("sync_get_device"),

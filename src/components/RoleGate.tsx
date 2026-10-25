@@ -1,61 +1,133 @@
-import { useEffect, useState } from "react";
-import { ShieldCheck, ShoppingCart, Lock, Eye, EyeOff, LogOut } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import {
+  ChevronLeft,
+  Eye,
+  EyeOff,
+  Lock,
+  LogOut,
+  RefreshCw,
+  ShieldCheck,
+  ShoppingCart,
+  Users,
+} from "lucide-react";
 import { useAuth } from "../lib/auth";
 import { api } from "../lib/api";
-import { Button, Card, Input, Spinner } from "./ui";
+import { ACCESS_LEVEL_LABELS } from "../lib/access";
+import { errMsg } from "../lib/format";
+import type { AuthStatus, LoginUser } from "../lib/types";
+import { Badge, Button, Card, Input, Spinner, cn } from "./ui";
 
 export default function RoleGate({ children }: { children: React.ReactNode }) {
-  const { role, loginGerente, loginDependiente } = useAuth();
-  const [showPin, setShowPin] = useState(false);
+  const auth = useAuth();
+  const [status, setStatus] = useState<AuthStatus | null>(null);
+  const [users, setUsers] = useState<LoginUser[]>([]);
+  const [deviceRole, setDeviceRole] = useState("gerente");
+  const [loadingData, setLoadingData] = useState(true);
+  const [dataError, setDataError] = useState<string | null>(null);
+  const [selected, setSelected] = useState<LoginUser | null>(null);
   const [pin, setPin] = useState("");
   const [pinVisible, setPinVisible] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [checkingPin, setCheckingPin] = useState(true);
-  const [needsSetup, setNeedsSetup] = useState(false);
   const [newPin, setNewPin] = useState("");
   const [confirmPin, setConfirmPin] = useState("");
 
-  useEffect(() => {
-    api
-      .managerPinExists()
-      .then((exists) => setNeedsSetup(!exists))
-      .catch(() => setNeedsSetup(false))
-      .finally(() => setCheckingPin(false));
+  const load = useCallback(async () => {
+    setLoadingData(true);
+    setDataError(null);
+    try {
+      const [nextStatus, nextUsers] = await Promise.all([
+        api.authStatus(),
+        api.listLoginUsers(),
+      ]);
+      let nextDeviceRole = "gerente";
+      try {
+        nextDeviceRole = (await api.syncGetDevice()).role;
+      } catch {}
+      setStatus(nextStatus);
+      setUsers(nextUsers);
+      setDeviceRole(nextDeviceRole);
+    } catch (e) {
+      setDataError(errMsg(e));
+    } finally {
+      setLoadingData(false);
+    }
   }, []);
 
-  // If role selected, allow
-  if (role !== null) {
+  useEffect(() => {
+    if (!auth.loading && !auth.user) load();
+  }, [auth.loading, auth.user, load]);
+
+  useEffect(() => {
+    if (auth.user) {
+      setSelected(null);
+      setPin("");
+      setNewPin("");
+      setConfirmPin("");
+      setError(null);
+    }
+  }, [auth.user]);
+
+  if (auth.loading) {
+    return (
+      <div className="fixed inset-0 z-[60] grid place-items-center bg-surface-950">
+        <Spinner className="h-8 w-8" />
+      </div>
+    );
+  }
+
+  if (auth.user) {
     return <>{children}</>;
   }
 
-  const handleGerente = async () => {
-    if (!pin.trim()) {
-      setError("Ingresa el PIN del gerente");
-      return;
-    }
-    setLoading(true);
+  const isDependentDevice = deviceRole === "dependiente";
+  const visibleUsers = isDependentDevice
+    ? users.filter((user) => !user.isOwner || user.hasPin)
+    : users;
+  const owner = users.find((user) => user.isOwner) ?? null;
+  const quickUser = users.find((user) => !user.isOwner && !user.hasPin) ?? null;
+  const needsSetup = status ? !status.ownerHasPin && !isDependentDevice : false;
+
+  const doLogin = async (user: LoginUser, pinValue?: string | null) => {
+    setSubmitting(true);
     setError(null);
     try {
-      const ok = await loginGerente(pin.trim());
-      if (!ok) {
-        setError("PIN incorrecto");
-      } else {
-        setPin("");
-        setShowPin(false);
-      }
+      await auth.login(user.id, pinValue ?? null);
     } catch (e) {
-      setError(e instanceof Error ? e.message : typeof e === "string" ? e : "Error al verificar PIN");
+      setError(errMsg(e));
     } finally {
-      setLoading(false);
+      setSubmitting(false);
     }
   };
 
-  const handleCreatePin = async () => {
+  const handleSelect = (user: LoginUser) => {
+    setError(null);
+    if (user.hasPin) {
+      setSelected(user);
+      setPin("");
+      return;
+    }
+    void doLogin(user);
+  };
+
+  const handlePinSubmit = () => {
+    if (!selected) return;
+    if (!pin.trim()) {
+      setError("Ingresa el PIN");
+      return;
+    }
+    void doLogin(selected, pin.trim());
+  };
+
+  const handleCreateOwnerPin = async () => {
+    if (!owner) {
+      setError("No se encontró el usuario gerente. Reinicia la app.");
+      return;
+    }
     const p1 = newPin.trim();
     const p2 = confirmPin.trim();
     if (!p1 || !p2) {
-      setError("Crea tu PIN de gerente (4-12 dígitos)");
+      setError("Crea el PIN del gerente (4-12 dígitos)");
       return;
     }
     if (p1 !== p2) {
@@ -63,243 +135,322 @@ export default function RoleGate({ children }: { children: React.ReactNode }) {
       return;
     }
     if (p1.length < 4 || p1.length > 12 || !/^\d+$/.test(p1)) {
-      setError("El PIN debe ser de 4 a 12 dígitos numéricos");
+      setError("El PIN debe tener entre 4 y 12 dígitos numéricos");
       return;
     }
-    setLoading(true);
+    setSubmitting(true);
     setError(null);
     try {
-      await api.setManagerPin(p1);
-      const ok = await loginGerente(p1);
-      if (!ok) {
-        setError("PIN creado, pero falló el ingreso. Intenta de nuevo.");
-      }
-      setNewPin("");
-      setConfirmPin("");
-      setShowPin(false);
+      await api.setOwnerPin(p1, null);
+      setStatus((current) =>
+        current ? { ...current, ownerHasPin: true } : current,
+      );
+      await auth.login(owner.id, p1);
     } catch (e) {
-      setError(e instanceof Error ? e.message : typeof e === "string" ? e : "Error al crear el PIN");
+      setError(errMsg(e));
     } finally {
-      setLoading(false);
+      setSubmitting(false);
     }
   };
 
-  const handleDependiente = () => {
-    loginDependiente();
+  const renderContent = () => {
+    if (loadingData) {
+      return (
+        <div className="grid h-40 place-items-center">
+          <Spinner className="h-8 w-8" />
+        </div>
+      );
+    }
+
+    if (dataError) {
+      return (
+        <Card className="p-6">
+          <h2 className="text-sm font-semibold text-zinc-100">No se pudo cargar el acceso</h2>
+          <p className="mt-1.5 text-xs leading-relaxed text-red-400">{dataError}</p>
+          <Button variant="outline" className="mt-4" onClick={load}>
+            <RefreshCw size={14} />
+            Reintentar
+          </Button>
+        </Card>
+      );
+    }
+
+    if (!status?.ownerExists) {
+      return (
+        <Card className="p-6">
+          <h2 className="text-sm font-semibold text-zinc-100">Falta inicializar el gerente</h2>
+          <p className="mt-1.5 text-xs leading-relaxed text-zinc-500">
+            No se encontró el usuario propietario. Cierra y vuelve a abrir la app para que la
+            migración termine de crear los usuarios.
+          </p>
+          <Button variant="outline" className="mt-4" onClick={load}>
+            <RefreshCw size={14} />
+            Reintentar
+          </Button>
+        </Card>
+      );
+    }
+
+    if (needsSetup) {
+      return (
+        <Card className="p-6">
+          <div className="flex items-center gap-2">
+            <Lock size={16} className="text-accent-400" />
+            <h2 className="text-sm font-semibold text-zinc-100">Crea el PIN del gerente</h2>
+          </div>
+          <p className="mt-1.5 text-xs leading-relaxed text-zinc-500">
+            Este PIN protege Configuración, los respaldos y la administración de usuarios.
+            Elige uno de 4 a 12 dígitos.
+          </p>
+
+          <div className="mt-4 grid gap-3">
+            <div className="relative">
+              <Input
+                type={pinVisible ? "text" : "password"}
+                inputMode="numeric"
+                placeholder="Nuevo PIN del gerente"
+                value={newPin}
+                onChange={(e) => {
+                  setNewPin(e.target.value.replace(/\D/g, "").slice(0, 12));
+                  if (error) setError(null);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleCreateOwnerPin();
+                }}
+                autoFocus
+                className="pr-9"
+              />
+              <button
+                type="button"
+                onClick={() => setPinVisible((v) => !v)}
+                className="absolute top-1/2 right-2 -translate-y-1/2 rounded-md p-1 text-zinc-500 hover:bg-white/5 hover:text-zinc-300"
+              >
+                {pinVisible ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
+            </div>
+            <Input
+              type={pinVisible ? "text" : "password"}
+              inputMode="numeric"
+              placeholder="Confirma el PIN"
+              value={confirmPin}
+              onChange={(e) => {
+                setConfirmPin(e.target.value.replace(/\D/g, "").slice(0, 12));
+                if (error) setError(null);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleCreateOwnerPin();
+              }}
+            />
+          </div>
+
+          {error && <p className="mt-2 text-xs text-red-400">{error}</p>}
+
+          <div className="mt-4 flex gap-2">
+            <Button
+              variant="primary"
+              className="flex-1"
+              onClick={handleCreateOwnerPin}
+              loading={submitting}
+            >
+              Crear PIN y entrar
+            </Button>
+          </div>
+
+          {quickUser && (
+            <div className="mt-4 flex justify-center">
+              <button
+                onClick={() => void doLogin(quickUser)}
+                disabled={submitting}
+                className="inline-flex items-center gap-1.5 text-xs text-zinc-500 hover:text-zinc-300 disabled:opacity-50"
+              >
+                <LogOut size={12} />
+                Entrar como {quickUser.name} en su lugar
+              </button>
+            </div>
+          )}
+        </Card>
+      );
+    }
+
+    if (selected) {
+      return (
+        <Card className="p-6">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <Lock size={16} className="text-accent-400" />
+              <h2 className="text-sm font-semibold text-zinc-100">Hola, {selected.name}</h2>
+            </div>
+            <button
+              onClick={() => {
+                setSelected(null);
+                setPin("");
+                setError(null);
+              }}
+              className="inline-flex items-center gap-1 text-xs text-zinc-500 hover:text-zinc-300"
+            >
+              <ChevronLeft size={14} />
+              Usuarios
+            </button>
+          </div>
+          <p className="mt-1 text-xs text-zinc-500">Ingresa tu PIN para continuar</p>
+
+          <div className="relative mt-4">
+            <Input
+              type={pinVisible ? "text" : "password"}
+              inputMode="numeric"
+              placeholder="PIN (4-12 dígitos)"
+              value={pin}
+              onChange={(e) => {
+                setPin(e.target.value.replace(/\D/g, "").slice(0, 12));
+                if (error) setError(null);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handlePinSubmit();
+              }}
+              autoFocus
+              className="pr-9"
+            />
+            <button
+              type="button"
+              onClick={() => setPinVisible((v) => !v)}
+              className="absolute top-1/2 right-2 -translate-y-1/2 rounded-md p-1 text-zinc-500 hover:bg-white/5 hover:text-zinc-300"
+            >
+              {pinVisible ? <EyeOff size={16} /> : <Eye size={16} />}
+            </button>
+          </div>
+
+          {error && <p className="mt-2 text-xs text-red-400">{error}</p>}
+
+          <div className="mt-4 flex gap-2">
+            <Button
+              variant="ghost"
+              className="flex-1"
+              onClick={() => {
+                setSelected(null);
+                setPin("");
+                setError(null);
+              }}
+            >
+              Cancelar
+            </Button>
+            <Button
+              variant="primary"
+              className="flex-1"
+              onClick={handlePinSubmit}
+              loading={submitting}
+            >
+              Ingresar
+            </Button>
+          </div>
+        </Card>
+      );
+    }
+
+    return (
+      <div className="grid gap-3">
+        {error && (
+          <div className="rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs text-red-300">
+            {error}
+          </div>
+        )}
+        {visibleUsers.map((user) => {
+          const levelLabel = user.isOwner
+            ? "Gerente"
+            : (ACCESS_LEVEL_LABELS[user.accessLevel] ?? "Personalizado");
+          return (
+            <button
+              key={user.id}
+              onClick={() => handleSelect(user)}
+              disabled={submitting}
+              className="group block w-full text-left disabled:opacity-60"
+            >
+              <Card
+                className={cn(
+                  "p-4 transition-colors",
+                  user.isOwner
+                    ? "border-accent-500/20 bg-accent-500/[0.04] hover:border-accent-500/40"
+                    : "hover:border-white/15",
+                )}
+              >
+                <div className="flex items-center gap-4">
+                  <div
+                    className={cn(
+                      "grid h-11 w-11 shrink-0 place-items-center rounded-xl",
+                      user.isOwner
+                        ? "bg-accent-500/15 text-accent-400"
+                        : "bg-white/[0.06] text-zinc-400",
+                    )}
+                  >
+                    {user.isOwner ? <ShieldCheck size={20} /> : <Users size={20} />}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h2 className="truncate text-sm font-semibold text-zinc-100">{user.name}</h2>
+                      <Badge tone={user.isOwner ? "accent" : "zinc"}>{levelLabel}</Badge>
+                      {!user.hasPin && <Badge tone="warn">Sin PIN</Badge>}
+                    </div>
+                    <p className="mt-1 text-xs leading-relaxed text-zinc-500">
+                      {user.isOwner
+                        ? "Acceso total, configuración y administración de usuarios."
+                        : user.hasPin
+                          ? "Entra con tu PIN personal."
+                          : "Acceso rápido sin PIN. Solo a tus secciones autorizadas."}
+                    </p>
+                  </div>
+                  {user.hasPin ? (
+                    <Lock size={15} className="shrink-0 text-zinc-600 group-hover:text-zinc-400" />
+                  ) : (
+                    <ShoppingCart
+                      size={15}
+                      className="shrink-0 text-zinc-600 group-hover:text-zinc-400"
+                    />
+                  )}
+                </div>
+              </Card>
+            </button>
+          );
+        })}
+
+        {visibleUsers.length === 0 && (
+          <Card className="p-6 text-center">
+            <p className="text-sm text-zinc-300">No hay usuarios activos</p>
+            <Button variant="outline" className="mt-3" onClick={load}>
+              <RefreshCw size={14} />
+              Recargar
+            </Button>
+          </Card>
+        )}
+
+        <div className="flex items-center justify-between px-2 pt-1">
+          <p className="text-[11px] leading-relaxed text-zinc-600">
+            Pide al gerente que te asigne las secciones que necesitas.
+          </p>
+          <button
+            onClick={load}
+            className="inline-flex items-center gap-1 text-[11px] text-zinc-500 hover:text-zinc-300"
+          >
+            <RefreshCw size={11} />
+            Recargar
+          </button>
+        </div>
+      </div>
+    );
   };
 
   return (
     <div className="fixed inset-0 z-[60] flex flex-col overflow-y-auto bg-surface-950">
       <div className="flex flex-1 flex-col items-center justify-center px-4 py-8 sm:px-6">
         <div className="w-full max-w-lg">
-          {/* Header */}
           <div className="mb-6 text-center">
             <div className="mx-auto mb-4 grid h-14 w-14 place-items-center rounded-2xl border border-accent-500/20 bg-accent-500/15 text-accent-400">
               <ShieldCheck size={28} />
             </div>
             <h1 className="text-xl font-semibold tracking-tight text-zinc-50">Bienvenido a TuOrden</h1>
-            <p className="mt-1.5 text-sm text-zinc-500">Elige cómo deseas ingresar</p>
+            <p className="mt-1.5 text-sm text-zinc-500">
+              Elige tu usuario para ingresar
+            </p>
           </div>
-
-          {checkingPin ? (
-            <div className="grid h-40 place-items-center">
-              <Spinner className="h-8 w-8" />
-            </div>
-          ) : !showPin ? (
-            <div className="grid gap-4">
-              <Card className="p-5 transition-colors hover:border-accent-500/20">
-                <div className="flex items-start gap-4">
-                  <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-accent-500/15 text-accent-400">
-                    <Lock size={20} />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <h2 className="text-sm font-semibold text-zinc-100">Acceso Gerente</h2>
-                    <p className="mt-1 text-xs leading-relaxed text-zinc-500">
-                      Acceso completo: Dashboard, Ventas, Menú, Materiales, Reportes y Configuración. Requiere PIN.
-                    </p>
-                    <Button variant="primary" size="sm" className="mt-3 w-full sm:w-auto" onClick={() => setShowPin(true)}>
-                      <Lock size={14} />
-                      {needsSetup ? "Crear PIN de gerente" : "Ingresar PIN de gerente"}
-                    </Button>
-                  </div>
-                </div>
-              </Card>
-
-              <Card className="p-5 transition-colors hover:border-white/10">
-                <div className="flex items-start gap-4">
-                  <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-white/[0.06] text-zinc-400">
-                    <ShoppingCart size={20} />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <h2 className="text-sm font-semibold text-zinc-100">Modo Dependiente</h2>
-                    <p className="mt-1 text-xs leading-relaxed text-zinc-500">
-                      Solo acceso a <strong className="text-zinc-300">Ventas</strong>. Ideal para personal de mostrador sin acceso a configuraciones sensibles.
-                    </p>
-                    <Button variant="outline" size="sm" className="mt-3 w-full sm:w-auto" onClick={handleDependiente}>
-                      <ShoppingCart size={14} />
-                      Entrar como dependiente
-                    </Button>
-                  </div>
-                </div>
-              </Card>
-
-              <p className="px-2 text-center text-[11px] leading-relaxed text-zinc-600">
-                {needsSetup
-                  ? "Primera vez: crea tu PIN de gerente para proteger el acceso completo."
-                  : "Podrás cambiar de modo en cualquier momento desde el menú."}
-              </p>
-            </div>
-          ) : needsSetup ? (
-            <Card className="p-6">
-              <div className="flex items-center justify-between">
-                <h2 className="flex items-center gap-2 text-sm font-semibold text-zinc-100">
-                  <Lock size={16} className="text-accent-400" />
-                  Crea tu PIN de Gerente
-                </h2>
-                <button
-                  onClick={() => {
-                    setShowPin(false);
-                    setNewPin("");
-                    setConfirmPin("");
-                    setError(null);
-                  }}
-                  className="text-xs text-zinc-500 hover:text-zinc-300"
-                >
-                  Volver
-                </button>
-              </div>
-              <p className="mt-1 text-xs text-zinc-500">Solo tú lo conocerás. Guárdalo bien, protege todo el negocio.</p>
-
-              <div className="mt-4 grid gap-3">
-                <div className="relative">
-                  <Input
-                    type={pinVisible ? "text" : "password"}
-                    inputMode="numeric"
-                    placeholder="Nuevo PIN (4-12 dígitos)"
-                    value={newPin}
-                    onChange={(e) => {
-                      setNewPin(e.target.value.replace(/\D/g, "").slice(0, 12));
-                      if (error) setError(null);
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") handleCreatePin();
-                    }}
-                    autoFocus
-                    className="pr-9"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setPinVisible((v) => !v)}
-                    className="absolute top-1/2 right-2 -translate-y-1/2 rounded-md p-1 text-zinc-500 hover:bg-white/5 hover:text-zinc-300"
-                  >
-                    {pinVisible ? <EyeOff size={16} /> : <Eye size={16} />}
-                  </button>
-                </div>
-                <Input
-                  type={pinVisible ? "text" : "password"}
-                  inputMode="numeric"
-                  placeholder="Confirma el PIN"
-                  value={confirmPin}
-                  onChange={(e) => {
-                    setConfirmPin(e.target.value.replace(/\D/g, "").slice(0, 12));
-                    if (error) setError(null);
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") handleCreatePin();
-                  }}
-                />
-              </div>
-              {error && <p className="mt-2 text-xs text-red-400">{error}</p>}
-
-              <div className="mt-4 flex gap-2">
-                <Button variant="ghost" className="flex-1" onClick={() => setShowPin(false)}>
-                  Cancelar
-                </Button>
-                <Button variant="primary" className="flex-1" onClick={handleCreatePin} loading={loading}>
-                  {loading ? "Creando..." : "Crear y entrar"}
-                </Button>
-              </div>
-
-              <div className="mt-4 flex justify-center">
-                <button onClick={handleDependiente} className="inline-flex items-center gap-1.5 text-xs text-zinc-500 hover:text-zinc-300">
-                  <LogOut size={12} />
-                  Entrar como dependiente en su lugar
-                </button>
-              </div>
-            </Card>
-          ) : (
-            <Card className="p-6">
-              <div className="flex items-center justify-between">
-                <h2 className="flex items-center gap-2 text-sm font-semibold text-zinc-100">
-                  <Lock size={16} className="text-accent-400" />
-                  PIN de Gerente
-                </h2>
-                <button
-                  onClick={() => {
-                    setShowPin(false);
-                    setPin("");
-                    setError(null);
-                  }}
-                  className="text-xs text-zinc-500 hover:text-zinc-300"
-                >
-                  Volver
-                </button>
-              </div>
-              <p className="mt-1 text-xs text-zinc-500">Ingresa el PIN para desbloquear todas las secciones</p>
-
-              <div className="mt-4 flex gap-2">
-                <div className="relative flex-1">
-                  <Input
-                    type={pinVisible ? "text" : "password"}
-                    inputMode="numeric"
-                    placeholder="PIN (4-12 dígitos)"
-                    value={pin}
-                    onChange={(e) => {
-                      // only digits
-                      const v = e.target.value.replace(/\D/g, "").slice(0, 12);
-                      setPin(v);
-                      if (error) setError(null);
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") handleGerente();
-                    }}
-                    autoFocus
-                    className="pr-9"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setPinVisible((v) => !v)}
-                    className="absolute top-1/2 right-2 -translate-y-1/2 rounded-md p-1 text-zinc-500 hover:bg-white/5 hover:text-zinc-300"
-                  >
-                    {pinVisible ? <EyeOff size={16} /> : <Eye size={16} />}
-                  </button>
-                </div>
-              </div>
-              {error && <p className="mt-2 text-xs text-red-400">{error}</p>}
-
-              <div className="mt-4 flex gap-2">
-                <Button variant="ghost" className="flex-1" onClick={() => setShowPin(false)}>
-                  Cancelar
-                </Button>
-                <Button variant="primary" className="flex-1" onClick={handleGerente} loading={loading}>
-                  {loading ? "Verificando..." : "Ingresar"}
-                </Button>
-              </div>
-
-              <div className="mt-4 rounded-xl bg-surface-800 px-3 py-2.5">
-                <p className="text-xs leading-relaxed text-zinc-500">
-                  ¿Olvidaste el PIN? Solo el gerente puede cambiarlo desde Configuración con el PIN actual.
-                </p>
-              </div>
-
-              <div className="mt-4 flex justify-center">
-                <button onClick={handleDependiente} className="inline-flex items-center gap-1.5 text-xs text-zinc-500 hover:text-zinc-300">
-                  <LogOut size={12} />
-                  Entrar como dependiente en su lugar
-                </button>
-              </div>
-            </Card>
-          )}
+          {renderContent()}
         </div>
       </div>
     </div>

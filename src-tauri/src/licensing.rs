@@ -87,6 +87,8 @@ const WIPE_TABLES: &[&str] = &[
     "sale_origin_map",
     "sync_meta",
     "app_config",
+    "user_permissions",
+    "users",
 ];
 
 /// Borra todos los registros en una transacción atómica y compacta la BD.
@@ -107,6 +109,7 @@ fn wipe_all_data(state: &State<'_, AppState>) -> Result<(), String> {
             }
         }
     }
+    crate::db::seed_users(&tx).map_err(|e| e.to_string())?;
     tx.commit().map_err(|e| e.to_string())?;
     // VACUUM fuera de la transacción para compactar el archivo.
     guard.execute_batch("VACUUM").map_err(|e| e.to_string())?;

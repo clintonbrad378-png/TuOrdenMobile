@@ -2,6 +2,7 @@ mod commands;
 mod db;
 mod licensing;
 mod models;
+mod security;
 
 use std::sync::Mutex;
 use tauri::Manager;
@@ -62,10 +63,16 @@ pub fn run() {
             commands::backup::backup_database,
             commands::backup::restore_database,
             commands::backup::db_info,
-            commands::auth::manager_pin_exists,
-            commands::auth::verify_manager_pin,
-            commands::auth::set_manager_pin,
-            commands::auth::get_manager_pin_hint,
+            commands::auth::auth_status,
+            commands::auth::list_login_users,
+            commands::auth::login_user,
+            commands::auth::get_session_user,
+            commands::auth::set_owner_pin,
+            commands::auth::list_users,
+            commands::auth::create_user,
+            commands::auth::update_user,
+            commands::auth::set_user_active,
+            commands::auth::delete_user,
             commands::expenses::list_expenses,
             commands::expenses::create_expense,
             commands::expenses::update_expense,

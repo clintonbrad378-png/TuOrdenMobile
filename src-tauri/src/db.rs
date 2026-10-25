@@ -1,4 +1,4 @@
-use rusqlite::Connection;
+use rusqlite::{Connection, OptionalExtension};
 
 const SCHEMA_V1: &str = r#"
 CREATE TABLE IF NOT EXISTS materials (
@@ -266,6 +266,92 @@ CREATE TABLE IF NOT EXISTS sale_origin_map (
   PRIMARY KEY (origin_device, origin_kind, origin_local_id)
 );
 "#;
+
+const MIGRATION_V11: &str = r#"
+-- Usuarios locales y permisos por seccion. El propietario (is_owner=1) siempre
+-- tiene acceso total; los demas usuarios solo a las secciones asignadas.
+CREATE TABLE IF NOT EXISTS users (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL COLLATE NOCASE,
+  role TEXT NOT NULL DEFAULT 'usuario',
+  access_level TEXT NOT NULL DEFAULT 'personalizado',
+  pin_hash TEXT,
+  active INTEGER NOT NULL DEFAULT 1,
+  is_owner INTEGER NOT NULL DEFAULT 0,
+  last_login_at TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_single_owner ON users(is_owner) WHERE is_owner = 1;
+CREATE INDEX IF NOT EXISTS idx_users_active ON users(active);
+
+CREATE TABLE IF NOT EXISTS user_permissions (
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  section TEXT NOT NULL,
+  PRIMARY KEY (user_id, section)
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_permissions_user ON user_permissions(user_id);
+"#;
+
+pub(crate) fn seed_users(conn: &Connection) -> Result<(), Box<dyn std::error::Error>> {
+    let count: i64 = conn.query_row("SELECT COUNT(*) FROM users", [], |r| r.get(0))?;
+    let owner_count: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM users WHERE is_owner = 1",
+        [],
+        |r| r.get(0),
+    )?;
+    if count > 0 && owner_count > 0 {
+        // Si una migración anterior quedó a medias, no conservar el PIN en claro.
+        let _ = conn.execute("DELETE FROM app_config WHERE key = 'manager_pin'", []);
+        return Ok(());
+    }
+
+    let legacy_pin: Option<String> = conn
+        .query_row(
+            "SELECT value FROM app_config WHERE key = 'manager_pin'",
+            [],
+            |r| r.get(0),
+        )
+        .optional()?;
+    let legacy_pin = legacy_pin.filter(|p| !p.trim().is_empty());
+    let owner_hash = match legacy_pin.as_deref() {
+        Some(pin) => Some(
+            crate::security::hash_pin(pin)
+                .map_err(|e| Box::new(std::io::Error::other(e)) as Box<dyn std::error::Error>)?,
+        ),
+        None => None,
+    };
+
+    // Propietario: conserva el PIN legado si existía; si no, lo crea al iniciar.
+    conn.execute(
+        "INSERT INTO users (name, role, access_level, pin_hash, active, is_owner)
+         VALUES ('Gerente', 'gerente', 'gerente', ?1, 1, 1)",
+        rusqlite::params![owner_hash],
+    )?;
+
+    if count == 0 {
+        // Usuario por defecto para conservar el flujo actual de acceso rápido.
+        conn.execute(
+            "INSERT INTO users (name, role, access_level, pin_hash, active, is_owner)
+             VALUES ('Dependiente', 'usuario', 'dependiente', NULL, 1, 0)",
+            [],
+        )?;
+        let worker_id = conn.last_insert_rowid();
+        for section in ["venta", "sincronizacion"] {
+            conn.execute(
+                "INSERT OR IGNORE INTO user_permissions (user_id, section) VALUES (?1, ?2)",
+                rusqlite::params![worker_id, section],
+            )?;
+        }
+    }
+
+    // El PIN legado ya vive como hash en users; no dejar la copia en claro.
+    conn.execute("DELETE FROM app_config WHERE key = 'manager_pin'", [])?;
+    Ok(())
+}
+
 pub fn init_db(path: &std::path::Path) -> Result<Connection, Box<dyn std::error::Error>> {
     let conn = Connection::open(path)?;
     conn.pragma_update(None, "foreign_keys", "ON")?;
@@ -352,6 +438,11 @@ fn migrate(conn: &Connection) -> Result<(), Box<dyn std::error::Error>> {
         )?;
         conn.pragma_update(None, "user_version", 10)?;
     }
+    if version < 11 {
+        conn.execute_batch(MIGRATION_V11)?;
+        conn.pragma_update(None, "user_version", 11)?;
+    }
+    seed_users(conn)?;
     Ok(())
 }
 
@@ -367,5 +458,135 @@ pub fn fmt_qty(n: f64) -> String {
     } else {
         let s = format!("{:.6}", rounded);
         s.trim_end_matches('0').trim_end_matches('.').to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rusqlite::OptionalExtension;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn test_path(label: &str) -> std::path::PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        std::env::temp_dir().join(format!(
+            "tuorden-{label}-{}-{nanos}.db",
+            std::process::id()
+        ))
+    }
+
+    fn cleanup(path: &std::path::Path) {
+        for suffix in ["", "-wal", "-shm"] {
+            let mut name = path.as_os_str().to_os_string();
+            name.push(suffix);
+            let _ = std::fs::remove_file(name);
+        }
+    }
+
+    #[test]
+    fn migrates_legacy_manager_pin_to_owner_user() {
+        let path = test_path("legacy-pin");
+        {
+            let conn = Connection::open(&path).unwrap();
+            conn.execute_batch(
+                "CREATE TABLE app_config (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+                 INSERT INTO app_config (key, value) VALUES ('manager_pin', '1234');
+                 PRAGMA user_version = 10;",
+            )
+            .unwrap();
+        }
+        {
+            let conn = init_db(&path).unwrap();
+            let (count, has_pin, pin_hash): (i64, i64, String) = conn
+                .query_row(
+                    "SELECT (SELECT COUNT(*) FROM users),
+                            (SELECT pin_hash IS NOT NULL FROM users WHERE is_owner = 1),
+                            (SELECT pin_hash FROM users WHERE is_owner = 1)",
+                    [],
+                    |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+                )
+                .unwrap();
+            assert_eq!(count, 2);
+            assert_eq!(has_pin, 1);
+            assert_ne!(pin_hash, "1234");
+            assert!(crate::security::verify_pin("1234", &pin_hash));
+
+            let legacy: Option<String> = conn
+                .query_row(
+                    "SELECT value FROM app_config WHERE key = 'manager_pin'",
+                    [],
+                    |r| r.get(0),
+                )
+                .optional()
+                .unwrap();
+            assert!(legacy.is_none());
+        }
+        cleanup(&path);
+    }
+
+    #[test]
+    fn seed_users_repairs_missing_owner() {
+        let path = test_path("repair-owner");
+        {
+            let conn = init_db(&path).unwrap();
+            conn.execute("DELETE FROM users WHERE is_owner = 1", [])
+                .unwrap();
+        }
+        {
+            let conn = init_db(&path).unwrap();
+            let (count, owners): (i64, i64) = conn
+                .query_row(
+                    "SELECT (SELECT COUNT(*) FROM users),
+                            (SELECT COUNT(*) FROM users WHERE is_owner = 1)",
+                    [],
+                    |r| Ok((r.get(0)?, r.get(1)?)),
+                )
+                .unwrap();
+            assert_eq!(count, 2);
+            assert_eq!(owners, 1);
+        }
+        cleanup(&path);
+    }
+
+    #[test]
+    fn fresh_install_creates_owner_and_default_dependent() {
+        let path = test_path("fresh");
+        {
+            let conn = init_db(&path).unwrap();
+            let count: i64 = conn
+                .query_row("SELECT COUNT(*) FROM users", [], |r| r.get(0))
+                .unwrap();
+            assert_eq!(count, 2);
+
+            let owner_pin: Option<String> = conn
+                .query_row(
+                    "SELECT pin_hash FROM users WHERE is_owner = 1",
+                    [],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            assert!(owner_pin.is_none());
+
+            let permissions: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM user_permissions up
+                     JOIN users u ON u.id = up.user_id
+                     WHERE u.access_level = 'dependiente'
+                       AND up.section IN ('venta', 'sincronizacion')",
+                    [],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            assert_eq!(permissions, 2);
+
+            let version: i64 = conn
+                .query_row("PRAGMA user_version", [], |r| r.get(0))
+                .unwrap();
+            assert_eq!(version, 11);
+        }
+        cleanup(&path);
     }
 }

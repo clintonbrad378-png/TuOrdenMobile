@@ -15,66 +15,41 @@ import {
 } from "lucide-react";
 import { cn } from "../ui";
 import { useAuth } from "../../lib/auth";
+import type { SectionKey } from "../../lib/access";
 
-const NAV = [
-  { to: "/", label: "Inicio", icon: LayoutDashboard, end: true },
-  { to: "/venta", label: "Venta", icon: ShoppingCart, end: false },
-  { to: "/historial", label: "Historial", icon: History, end: false },
-  { to: "/menu", label: "Menú", icon: UtensilsCrossed, end: false },
-  { to: "/produccion", label: "Producir", icon: Factory, end: false },
-  { to: "/materiales", label: "Materiales", icon: Boxes, end: false },
-  { to: "/entradas", label: "Entradas", icon: Truck, end: false },
-  { to: "/mermas", label: "Mermas", icon: Trash2, end: false },
-  { to: "/gastos", label: "Gastos", icon: CreditCard, end: false },
-  { to: "/reportes", label: "Reportes", icon: BarChart3, end: false },
-  { to: "/sincronizacion", label: "Sync", icon: RefreshCw, end: false },
-  { to: "/configuracion", label: "Ajustes", icon: Settings, end: false },
-];
-
-const VENTA_ONLY = [
-  { to: "/venta", label: "Venta", icon: ShoppingCart, end: false },
-  { to: "/sincronizacion", label: "Sync", icon: RefreshCw, end: false },
+const NAV: {
+  to: string;
+  label: string;
+  icon: typeof LayoutDashboard;
+  end: boolean;
+  section: SectionKey;
+}[] = [
+  { to: "/", label: "Inicio", icon: LayoutDashboard, end: true, section: "dashboard" },
+  { to: "/venta", label: "Venta", icon: ShoppingCart, end: false, section: "venta" },
+  { to: "/historial", label: "Historial", icon: History, end: false, section: "historial" },
+  { to: "/menu", label: "Menú", icon: UtensilsCrossed, end: false, section: "menu" },
+  { to: "/produccion", label: "Producir", icon: Factory, end: false, section: "produccion" },
+  { to: "/materiales", label: "Materiales", icon: Boxes, end: false, section: "materiales" },
+  { to: "/entradas", label: "Entradas", icon: Truck, end: false, section: "entradas" },
+  { to: "/mermas", label: "Mermas", icon: Trash2, end: false, section: "mermas" },
+  { to: "/gastos", label: "Gastos", icon: CreditCard, end: false, section: "gastos" },
+  { to: "/reportes", label: "Reportes", icon: BarChart3, end: false, section: "reportes" },
+  { to: "/sincronizacion", label: "Sync", icon: RefreshCw, end: false, section: "sincronizacion" },
+  { to: "/configuracion", label: "Ajustes", icon: Settings, end: false, section: "configuracion" },
 ];
 
 export default function BottomNav() {
-  const { isDependiente } = useAuth();
-  const nav = isDependiente ? VENTA_ONLY : NAV;
+  const { can } = useAuth();
+  const nav = NAV.filter((item) => can(item.section));
 
-  // En modo dependiente solo mostrar venta centrado + banner
-  if (isDependiente) {
-    return (
-      <nav className="pb-safe fixed inset-x-0 bottom-0 z-40 border-t border-white/[0.08] bg-surface-900/95 backdrop-blur lg:hidden">
-        <div className="flex h-16 items-center justify-center gap-3 px-4">
-          <span className="rounded-full border border-amber-500/20 bg-amber-500/10 px-2.5 py-1 text-[10px] font-medium text-amber-300">
-            Modo dependiente
-          </span>
-          {nav.map(({ to, label, icon: Icon, end }) => (
-            <NavLink
-              key={to}
-              to={to}
-              end={end}
-              className={({ isActive }) =>
-                cn(
-                  "relative flex touch-none flex-col items-center justify-center gap-1 rounded-xl px-6 py-1.5 transition-colors active:bg-white/[0.06]",
-                  isActive ? "bg-white/[0.07] text-accent-400" : "text-zinc-400",
-                )
-              }
-            >
-              <Icon size={20} />
-              <span className="text-[10px] leading-none font-medium">{label}</span>
-            </NavLink>
-          ))}
-        </div>
-      </nav>
-    );
-  }
+  if (nav.length === 0) return null;
 
   return (
     <nav className="pb-safe fixed inset-x-0 bottom-0 z-40 border-t border-white/[0.08] bg-surface-900/95 backdrop-blur lg:hidden">
       <div className="scrollbar-hide flex h-[76px] touch-pan-x items-stretch gap-1 overflow-x-auto px-2">
-        {nav.map(({ to, label, icon: Icon, end }) => (
+        {nav.map(({ to, label, icon: Icon, end, section }) => (
           <NavLink
-            key={to}
+            key={section}
             to={to}
             end={end}
             className={({ isActive }) =>

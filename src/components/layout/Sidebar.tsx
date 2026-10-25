@@ -18,30 +18,32 @@ import {
 } from "lucide-react";
 import { cn } from "../ui";
 import { useAuth } from "../../lib/auth";
+import type { SectionKey } from "../../lib/access";
 
-const NAV = [
-  { to: "/", label: "Dashboard", icon: LayoutDashboard, end: true },
-  { to: "/venta", label: "Venta", icon: ShoppingCart, end: false },
-  { to: "/historial", label: "Historial", icon: History, end: false },
-  { to: "/menu", label: "Menú", icon: UtensilsCrossed, end: false },
-  { to: "/produccion", label: "Producción", icon: Factory, end: false },
-  { to: "/materiales", label: "Materiales", icon: Boxes, end: false },
-  { to: "/entradas", label: "Entradas", icon: Truck, end: false },
-  { to: "/mermas", label: "Mermas", icon: Trash2, end: false },
-  { to: "/gastos", label: "Gastos", icon: CreditCard, end: false },
-  { to: "/reportes", label: "Reportes", icon: BarChart3, end: false },
-  { to: "/sincronizacion", label: "Sincronización", icon: RefreshCw, end: false },
-  { to: "/configuracion", label: "Configuración", icon: Settings, end: false },
-];
-
-const VENTA_ONLY = [
-  { to: "/venta", label: "Venta", icon: ShoppingCart, end: false },
-  { to: "/sincronizacion", label: "Sync", icon: RefreshCw, end: false },
+const NAV: {
+  to: string;
+  label: string;
+  icon: typeof LayoutDashboard;
+  end: boolean;
+  section: SectionKey;
+}[] = [
+  { to: "/", label: "Dashboard", icon: LayoutDashboard, end: true, section: "dashboard" },
+  { to: "/venta", label: "Venta", icon: ShoppingCart, end: false, section: "venta" },
+  { to: "/historial", label: "Historial", icon: History, end: false, section: "historial" },
+  { to: "/menu", label: "Menú", icon: UtensilsCrossed, end: false, section: "menu" },
+  { to: "/produccion", label: "Producción", icon: Factory, end: false, section: "produccion" },
+  { to: "/materiales", label: "Materiales", icon: Boxes, end: false, section: "materiales" },
+  { to: "/entradas", label: "Entradas", icon: Truck, end: false, section: "entradas" },
+  { to: "/mermas", label: "Mermas", icon: Trash2, end: false, section: "mermas" },
+  { to: "/gastos", label: "Gastos", icon: CreditCard, end: false, section: "gastos" },
+  { to: "/reportes", label: "Reportes", icon: BarChart3, end: false, section: "reportes" },
+  { to: "/sincronizacion", label: "Sincronización", icon: RefreshCw, end: false, section: "sincronizacion" },
+  { to: "/configuracion", label: "Configuración", icon: Settings, end: false, section: "configuracion" },
 ];
 
 export default function Sidebar() {
-  const { isDependiente, isGerente, logout, switchToDependiente } = useAuth();
-  const nav = isDependiente ? VENTA_ONLY : NAV;
+  const { can, user, isOwner, logout } = useAuth();
+  const nav = NAV.filter((item) => can(item.section));
 
   return (
     <aside className="hidden w-60 shrink-0 flex-col border-r border-white/[0.06] bg-surface-900/40 p-4 lg:flex">
@@ -57,17 +59,17 @@ export default function Sidebar() {
         </div>
       </div>
 
-      {isDependiente && (
+      {user && !isOwner && (
         <div className="mb-3 flex items-center gap-2 rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2">
           <Shield size={14} className="shrink-0 text-amber-400" />
-          <span className="text-xs font-medium text-amber-300">Modo dependiente</span>
+          <span className="truncate text-xs font-medium text-amber-300">{user.name}</span>
         </div>
       )}
 
       <nav className="flex flex-col gap-1">
-        {nav.map(({ to, label, icon: Icon, end }) => (
+        {nav.map(({ to, label, icon: Icon, end, section }) => (
           <NavLink
-            key={to}
+            key={section}
             to={to}
             end={end}
             className={({ isActive }) =>
@@ -90,34 +92,19 @@ export default function Sidebar() {
       </nav>
 
       <div className="mt-auto space-y-3 px-1">
-        {isDependiente && (
-          <button
-            onClick={logout}
-            className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs text-zinc-500 hover:bg-white/[0.04] hover:text-zinc-300"
-          >
-            <LogOut size={14} />
-            Cambiar a gerente
-          </button>
-        )}
-        {isGerente && (
-          <div className="space-y-1 border-t border-white/[0.06] pt-3">
-            <button
-              onClick={switchToDependiente}
-              className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs text-zinc-500 hover:bg-white/[0.04] hover:text-zinc-300"
-              title="Cambiar a modo dependiente (solo ventas)"
-            >
-              <Shield size={14} />
-              Modo dependiente
-            </button>
-            <button
-              onClick={logout}
-              className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs text-zinc-500 hover:bg-white/[0.04] hover:text-zinc-300"
-            >
-              <LogOut size={14} />
-              Bloquear
-            </button>
-          </div>
-        )}
+        <div className="rounded-lg border border-white/[0.05] bg-white/[0.02] px-3 py-2">
+          <p className="text-[10px] tracking-wide text-zinc-600 uppercase">Sesión</p>
+          <p className="mt-0.5 truncate text-xs font-medium text-zinc-300">
+            {user?.name ?? "—"}
+          </p>
+        </div>
+        <button
+          onClick={logout}
+          className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs text-zinc-500 hover:bg-white/[0.04] hover:text-zinc-300"
+        >
+          <LogOut size={14} />
+          Cambiar de usuario
+        </button>
         <p className="px-2 text-[11px] text-zinc-600">TuOrden v0.4.0 · SQLite local</p>
       </div>
     </aside>
