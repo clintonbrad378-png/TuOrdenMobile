@@ -229,7 +229,7 @@ export async function pushCatalog(): Promise<{ version: number; count: string }>
   const sb = requireRelay();
   if (!isOnline()) throw new Error("Sin conexión a internet");
   const dev = await api.syncGetDevice();
-  if (!dev.businessId) throw new Error("Primero genera un código de negocio");
+  if (!dev.businessId) throw new Error("Vincula el dispositivo antes de sincronizar");
   const catalog = await api.syncExportCatalog();
   const { data: latest } = await relay("publicar el catálogo", async () =>
     sb
@@ -259,7 +259,7 @@ export async function pullCatalog(): Promise<{ applied: boolean; version: number
   const sb = requireRelay();
   if (!isOnline()) throw new Error("Sin conexión a internet");
   const dev = await api.syncGetDevice();
-  if (!dev.businessId) throw new Error("Únete con un código primero");
+  if (!dev.businessId) throw new Error("Vincula el dispositivo antes de sincronizar");
   // Push-before-pull: no perder deducciones pendientes.
   await pushSales(true);
   const { data, error } = await relay("descargar el catálogo", async () =>
@@ -302,7 +302,7 @@ export async function pushSales(quiet = false): Promise<{ uploaded: number }> {
   const dev = await api.syncGetDevice();
   if (!dev.businessId) {
     if (quiet) return { uploaded: 0 };
-    throw new Error("Únete con un código primero");
+    throw new Error("Vincula el dispositivo antes de sincronizar");
   }
   const pending = await api.syncExportPending(100);
   if (pending.length === 0) return { uploaded: 0 };
@@ -344,7 +344,7 @@ export async function pullSales(): Promise<{ imported: number; conflicts: number
   const sb = requireRelay();
   if (!isOnline()) throw new Error("Sin conexión a internet");
   const dev = await api.syncGetDevice();
-  if (!dev.businessId) throw new Error("Primero genera un código de negocio");
+  if (!dev.businessId) throw new Error("Vincula el dispositivo antes de sincronizar");
   const { data, error } = await relay("recibir las ventas", async () =>
     sb
       .from("sales_batches")

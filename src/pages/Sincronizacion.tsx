@@ -189,16 +189,22 @@ export default function Sincronizacion() {
   };
 
   const connected = !!getRelayClient();
+  const linked = !!status?.businessId;
   const role = status?.role ?? "gerente";
   const isDependienteDevice = role === "dependiente";
-  const canManageLink = isOwner && !isDependienteDevice;
 
   return (
     <div className="h-full overflow-y-auto">
       <div className="mx-auto max-w-3xl px-4 py-5 sm:px-8 sm:py-8">
         <PageHeader
           title="Sincronización"
-          subtitle={role === "dependiente" ? "Recibe el menú y envía tus ventas" : "Comparte tu menú y recibe ventas"}
+          subtitle={
+            !linked
+              ? "Vincula este dispositivo para compartir el menú y las ventas"
+              : role === "dependiente"
+                ? "Recibe el menú y envía tus ventas"
+                : "Comparte tu menú y recibe ventas"
+          }
           actions={
             <div className="flex items-center gap-2">
               <Badge tone={online ? "success" : "danger"}>
@@ -282,78 +288,78 @@ export default function Sincronizacion() {
               </p>
             </Card>
 
-            {canManageLink && (
-              <Card className="mt-6 p-5">
-                <h2 className="flex items-center gap-2 text-sm font-medium text-zinc-200">
-                  <QrCode size={16} className="text-accent-400" />
-                  Compartir con dependiente
-                </h2>
-                <p className="mt-1.5 text-xs leading-relaxed text-zinc-500">
-                  Genera un código de 6 letras. El dependiente lo ingresa una vez y queda vinculado.
-                  Válido 24h, 5 usos. Luego publica el catálogo.
-                </p>
-                <div className="mt-4">
-                  <Button variant="primary" onClick={handleGenerate} loading={busy}>
-                    <QrCode size={15} />
-                    Generar código
-                  </Button>
-                </div>
-                {lastCode && (
-                  <div className="mt-4 flex flex-col items-center rounded-xl border border-white/[0.06] bg-surface-800 px-4 py-4">
-                    <button onClick={copyCode} className="flex items-center gap-2 text-3xl font-bold tracking-[0.3em] text-zinc-50">
-                      {lastCode}
-                      <Copy size={16} className="text-zinc-500" />
-                    </button>
-                    <div className="mt-3 rounded-2xl bg-white p-3 shadow-xl">
-                      <QRCodeSVG value={`TUORDEN:${lastCode}`} size={160} level="M" bgColor="#ffffff" fgColor="#000000" />
-                    </div>
-                    <p className="mt-2 text-[11px] text-zinc-500">El dependiente escribe el código o escanea el QR</p>
-                  </div>
+            <Card className="mt-6 p-5">
+              <h2 className="text-sm font-medium text-zinc-200">Unirse con código</h2>
+              <p className="mt-1.5 text-xs text-zinc-500">
+                Pide al gerente su código de 6 letras e ingrésalo una vez.
+                {!connected && " Requiere la conexión Supabase (más abajo)."}
+              </p>
+              <div className="mt-3 flex gap-2">
+                <Input
+                  placeholder="Ej. KQ7M2X"
+                  value={code}
+                  onChange={(e) => setCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 8))}
+                  className="font-mono tracking-[0.2em] uppercase"
+                />
+                <Button variant="primary" onClick={handleRedeem} loading={busy}>
+                  Vincular
+                </Button>
+              </div>
+            </Card>
+
+            <Card className="mt-6 p-5">
+              <h2 className="flex items-center gap-2 text-sm font-medium text-zinc-200">
+                <QrCode size={16} className="text-accent-400" />
+                Compartir con dependiente
+              </h2>
+              <p className="mt-1.5 text-xs leading-relaxed text-zinc-500">
+                Genera un código de 6 letras. El dependiente lo ingresa una vez y queda vinculado.
+                Válido 24h, 5 usos. Luego publica el catálogo.
+              </p>
+              <div className="mt-4">
+                <Button variant="primary" onClick={handleGenerate} loading={busy} disabled={!isOwner}>
+                  <QrCode size={15} />
+                  Generar código
+                </Button>
+                {!isOwner && (
+                  <p className="mt-2 text-[11px] text-zinc-600">Solo el gerente puede generar el código.</p>
                 )}
-              </Card>
-            )}
-
-            {isDependienteDevice && (
-              <Card className="mt-6 p-5">
-                <h2 className="text-sm font-medium text-zinc-200">Unirse con código</h2>
-                <p className="mt-1.5 text-xs text-zinc-500">Pide al gerente su código de 6 letras e ingrésalo una vez.</p>
-                <div className="mt-3 flex gap-2">
-                  <Input
-                    placeholder="Ej. KQ7M2X"
-                    value={code}
-                    onChange={(e) => setCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 8))}
-                    className="font-mono tracking-[0.2em] uppercase"
-                  />
-                  <Button variant="primary" onClick={handleRedeem} loading={busy}>
-                    Vincular
-                  </Button>
-                </div>
-              </Card>
-            )}
-
-            {(isOwner || isDependienteDevice) && (
-              <Card className="mt-6 p-5">
-                <h2 className="text-sm font-medium text-zinc-200">Conexión Supabase (relay)</h2>
-                <p className="mt-1.5 text-xs text-zinc-500">
-                  Mismo proyecto que usabas para el panel. Solo es buzón de intercambio, la venta sigue offline.
-                  {connected ? "" : " Pega URL y anon key."}
-                </p>
-                <div className="mt-3 grid gap-3">
-                  <div className="grid gap-1.5">
-                    <label className="text-xs font-medium text-zinc-400">Supabase URL</label>
-                    <Input placeholder="https://xyz.supabase.co" value={sbUrl} onChange={(e) => setSbUrl(e.target.value)} />
+              </div>
+              {lastCode && (
+                <div className="mt-4 flex flex-col items-center rounded-xl border border-white/[0.06] bg-surface-800 px-4 py-4">
+                  <button onClick={copyCode} className="flex items-center gap-2 text-3xl font-bold tracking-[0.3em] text-zinc-50">
+                    {lastCode}
+                    <Copy size={16} className="text-zinc-500" />
+                  </button>
+                  <div className="mt-3 rounded-2xl bg-white p-3 shadow-xl">
+                    <QRCodeSVG value={`TUORDEN:${lastCode}`} size={160} level="M" bgColor="#ffffff" fgColor="#000000" />
                   </div>
-                  <div className="grid gap-1.5">
-                    <label className="text-xs font-medium text-zinc-400">Anon key</label>
-                    <Input type="password" placeholder="eyJhbGciOi..." value={sbAnon} onChange={(e) => setSbAnon(e.target.value)} />
-                  </div>
+                  <p className="mt-2 text-[11px] text-zinc-500">El dependiente escribe el código o escanea el QR</p>
                 </div>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <Button variant="outline" onClick={handleSaveRelay}>Guardar conexión</Button>
-                  <Button variant="ghost" onClick={handleTestRelay} loading={busy}>Probar conexión</Button>
+              )}
+            </Card>
+
+            <Card className="mt-6 p-5">
+              <h2 className="text-sm font-medium text-zinc-200">Conexión Supabase (relay)</h2>
+              <p className="mt-1.5 text-xs text-zinc-500">
+                Mismo proyecto que usabas para el panel. Solo es buzón de intercambio, la venta sigue offline.
+                {connected ? "" : " Pega URL y anon key."}
+              </p>
+              <div className="mt-3 grid gap-3">
+                <div className="grid gap-1.5">
+                  <label className="text-xs font-medium text-zinc-400">Supabase URL</label>
+                  <Input placeholder="https://xyz.supabase.co" value={sbUrl} onChange={(e) => setSbUrl(e.target.value)} />
                 </div>
-              </Card>
-            )}
+                <div className="grid gap-1.5">
+                  <label className="text-xs font-medium text-zinc-400">Anon key</label>
+                  <Input type="password" placeholder="eyJhbGciOi..." value={sbAnon} onChange={(e) => setSbAnon(e.target.value)} />
+                </div>
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Button variant="outline" onClick={handleSaveRelay}>Guardar conexión</Button>
+                <Button variant="ghost" onClick={handleTestRelay} loading={busy}>Probar conexión</Button>
+              </div>
+            </Card>
           </>
         )}
       </div>
